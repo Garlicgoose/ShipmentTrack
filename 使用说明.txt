@@ -1,0 +1,57 @@
+# Shipment Track v0.6
+
+快递批量查询工具（DHL / DSV / EI / UPS / FedEx），Garlicgoose 制作。
+
+## 功能
+
+- 读取 Excel（第一列=快递公司，第二列=运单号），批量查询运单状态
+- 每个快递（DHL/DSV/EI/UPS）执行前自动预热：打开官网、关闭 cookie/欢迎弹窗等浮层，再开始查询
+- DHL / DSV / EI / UPS 通过模拟浏览器查询，FedEx 通过官方 API 查询
+- 已送达货件自动下载 POD（PDF）到 `输出文件夹\pdf\对应快递`
+- 输出结果 Excel：运单号 / 快递公司 / **状态** / 抵达时间 / 用时(秒) / 备注
+  - 「状态」列是读取到的原始状态（如 Delivered / In Transit），用于排查问题
+  - FedEx 有多个子单时：子单全部送达才算送达；子单超过 39 个只查主单，
+    备注列标注「子单超过39，需人工核查」
+- 勾选「只查状态」时只查状态，不下载任何 PDF
+
+## 使用方法
+
+1. 双击 `Shipment Track.exe` 启动（首次启动会自动检查授权，通过后进入主界面）
+2. 点「设置」：
+   - 输入 Excel（快递公司+运单号两列）
+   - 输出文件夹
+   - EI 邮箱 / 密码（EI 运单需要）
+   - FedEx API Key / Secret（developer.fedex.com 注册获取）
+   - Chrome：模拟浏览器路径，默认自动检测本文件夹 `chrome\` 下的浏览器，
+     一般不用改；如报找不到浏览器，点「自动检测」或手动指向 chrome.exe
+   - 勾选「最小化」：浏览器弹出后自动最小化（后台运行，不挡视线）
+3. 点「开始查询」，输出面板显示进度：`[1/100] DHL 4561879 Delivered`
+4. 完成后提示输出 Excel 位置
+
+## 目录说明
+
+```
+Shipment Track\
+├── Shipment Track.exe    主程序
+├── chrome\               Playwright Chromium 浏览器（必须保留，不能删）
+├── GetMachineId.exe      查看本机机器码（用于授权）
+├── data\                 授权缓存等（自动生成）
+└── 使用说明.txt          本文件
+```
+
+## 授权说明（给使用者）
+
+- 程序启动时联网检查授权（GitHub 上的开关文件），关闭后无法启动
+- 如果提示 `Unable to start. Please try again.`，说明本机未获授权
+- 需要授权：运行 `GetMachineId.exe`，把显示的机器码发给管理员，
+  管理员在 GitHub 仓库 `Garlicgoose/MyWorkTool_License` 的
+  `ShipmentTrack_license.json` 中把该机器码设为 `true` 即可
+
+## 常见问题
+
+- **启动报 "Unable to start"**：网络不可用或未授权，检查网络/联系管理员
+- **FedEx 查询报错**：确认设置里的 API Key/Secret 正确
+- **浏览器没弹出来**：设置了「最小化」，任务栏能看到；取消勾选设置中的
+  「最小化」即可正常显示
+- **同事电脑没有 Python / 库**：不需要，exe 已内置全部运行库；
+  只要整个文件夹（含 chrome\）一起拷贝即可运行
