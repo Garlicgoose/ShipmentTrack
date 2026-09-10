@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """后台任务：QThread worker，UI 全程丝滑（线程降优先级，不抢资源）。"""
 import ctypes
+import inspect
 import traceback
 
 from PySide6.QtCore import QThread, Signal
@@ -25,6 +26,7 @@ def _set_thread_idle_priority():
 class TaskWorker(QThread):
     log = Signal(str)
     progress = Signal(int)
+    item = Signal(object)
     finished_ok = Signal(bool, str)  # (ok, error_message)
 
     def __init__(self, fn, parent=None):
@@ -34,8 +36,14 @@ class TaskWorker(QThread):
     def run(self):
         _set_thread_idle_priority()
         try:
-            self._fn(log=self.log.emit,
-                     progress=self.progress.emit)
+            kwargs = {
+                "log": self.log.emit,
+                "progress": self.progress.emit,
+            }
+            parameters = inspect.signature(self._fn).parameters
+            if "item" in parameters:
+                kwargs["item"] = self.item.emit
+            self._fn(**kwargs)
             self.finished_ok.emit(True, "")
         except Exception as exc:  # noqa: BLE001
             traceback.print_exc()

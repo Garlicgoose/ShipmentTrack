@@ -959,13 +959,16 @@ def query_fedex_one(
     """查询单票；临时失败时自动回退到最后一次成功状态。"""
     tracking_number = str(tracking_number or "").strip()
     cache = _load_status_cache(cache_file) if use_cache else {}
+    # 单票公开入口也复用进程级 Session。主运行器逐行调用时不再重复
+    # 建立 TLS 连接，批量查询会明显更稳定。
+    effective_session = session or get_shared_session()
     result = _query_fedex_one_live(
         tracking_number=tracking_number,
         api_key=api_key,
         api_secret=api_secret,
         save_pdf=save_pdf,
         pdf_dir=pdf_dir,
-        _session=session,
+        _session=effective_session,
         _token=token,
     )
 

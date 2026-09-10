@@ -40,10 +40,12 @@ def run_tracking(
     save_pdf=True,
     log=None,
     progress=None,
+    result=None,
 ):
-    """执行批量查询。log(msg) / progress(value 0-100) 为回调（主线程安全）。"""
+    """执行批量查询。三个回调用于日志、进度和逐条结果。"""
     log = log or (lambda msg: None)
     progress = progress or (lambda v: None)
+    result = result or (lambda item: None)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -142,31 +144,38 @@ def run_tracking(
 
                 remark = " | ".join(x for x in (error, flag) if x)
 
-                results.append({
+                result_item = {
                     "运单号": tracking_number,
                     "快递公司": carrier,
                     "状态": status,
                     "抵达时间": arrival_time,
                     "用时(秒)": elapsed_seconds,
                     "备注": remark,
-                })
+                }
+                results.append(result_item)
+                result(dict(result_item))
 
                 log(f"[{idx + 1}/{total}] {carrier} {tracking_number} {status}")
 
             except Exception as e:
                 elapsed_seconds = round(time.perf_counter() - start_time, 2)
-                results.append({
+                result_item = {
                     "运单号": tracking_number,
                     "快递公司": carrier,
                     "状态": "Error",
                     "抵达时间": "",
                     "用时(秒)": elapsed_seconds,
                     "备注": str(e),
-                })
+                }
+                results.append(result_item)
+                result(dict(result_item))
                 log(f"[{idx + 1}/{total}] {carrier} {tracking_number} Error: {e}")
 
             progress(int(((idx + 1) / total) * 100))
-            time.sleep(0.3)
+            # FedEx 复用 Session/Token，不需要浏览器操作间隔；网页承运商
+            # 保留短间隔，避免连续页面跳转造成站点不稳定。
+            if not TRACKING_CARRIER_CONFIG[carrier].get("api_based"):
+                time.sleep(0.3)
 
         if session is not None:
             session.close()
@@ -177,6 +186,7 @@ def run_tracking(
                 playwright.stop()
             except Exception:
                 pass
+        fedex_module.close_shared_session()
 
     result_df = pd.DataFrame(results, columns=TRACKING_OUTPUT_COLUMNS)
 

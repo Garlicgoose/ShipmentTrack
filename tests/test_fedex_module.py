@@ -145,6 +145,22 @@ class FedexBusinessRulesTests(unittest.TestCase):
             fedex._save_status_cache(data, path)
             self.assertEqual(data, fedex._load_status_cache(path))
 
+    def test_public_single_query_uses_shared_session(self):
+        shared = object()
+        with mock.patch.object(fedex, "get_shared_session", return_value=shared), \
+             mock.patch.object(
+                 fedex,
+                 "_query_fedex_one_live",
+                 return_value={"status": "In transit", "error": ""},
+             ) as live:
+            fedex.query_fedex_one(
+                "123",
+                api_key="key",
+                api_secret="secret",
+                use_cache=False,
+            )
+        self.assertIs(shared, live.call_args.kwargs["_session"])
+
 
 if __name__ == "__main__":
     unittest.main()
