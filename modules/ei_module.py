@@ -656,7 +656,7 @@ def save_expeditors_pdf(page, tracking_number):
         return ""
 
 
-def query_expeditors_one(page, tracking_number):
+def query_expeditors_one(page, tracking_number, save_pdf=True):
     result = make_result(tracking_number)
 
     if not tracking_number:
@@ -698,7 +698,8 @@ def query_expeditors_one(page, tracking_number):
         if is_expeditors_delivered(status, page_text):
             result["is_delivered"] = True
             result["arrival_time"] = arrival_time
-            result["pdf_file"] = save_expeditors_pdf(page, tracking_text)
+            if save_pdf:
+                result["pdf_file"] = save_expeditors_pdf(page, tracking_text)
 
         print(
             f"{tracking_number} -> {result['status']} "

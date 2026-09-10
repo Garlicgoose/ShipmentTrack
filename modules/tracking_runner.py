@@ -108,6 +108,7 @@ def run_tracking(
                         chrome_path=chrome_path,
                         minimize_browser=minimize_browser,
                         log_func=log,
+                        save_pdf=save_pdf,
                     )
                     session.start()
 

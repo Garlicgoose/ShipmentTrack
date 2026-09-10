@@ -395,7 +395,7 @@ def warm_up_ups(page):
         print(f"UPS预热失败，继续执行: {e}")
 
 
-def query_ups_one(page, tracking_number):
+def query_ups_one(page, tracking_number, save_pdf=True):
     result = make_result(tracking_number)
 
     if not tracking_number:
@@ -437,7 +437,8 @@ def query_ups_one(page, tracking_number):
         if status.lower() == "delivered":
             result["is_delivered"] = True
             result["arrival_time"] = extract_arrival_time(page_text)
-            result["pdf_file"] = save_ups_pdf(page, tracking_number)
+            if save_pdf:
+                result["pdf_file"] = save_ups_pdf(page, tracking_number)
 
         print(
             f"{tracking_number} -> {result['status']} "

@@ -629,7 +629,7 @@ def warm_up_dsv(page):
         print(f"DSV预热失败，继续执行: {e}")
 
 
-def query_dsv_one(page, tracking_number):
+def query_dsv_one(page, tracking_number, save_pdf=True):
     result = make_result(tracking_number)
 
     if not tracking_number:
@@ -671,7 +671,8 @@ def query_dsv_one(page, tracking_number):
                 if detail_arrival_time:
                     arrival_time = detail_arrival_time
 
-                result["pdf_file"] = save_dsv_pdf(page, tracking_number)
+                if save_pdf:
+                    result["pdf_file"] = save_dsv_pdf(page, tracking_number)
 
             result["arrival_time"] = arrival_time
 

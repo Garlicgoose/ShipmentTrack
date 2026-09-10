@@ -257,6 +257,7 @@ class TrackingCarrierSession:
         chrome_path="",
         minimize_browser=True,
         log_func=None,
+        save_pdf=True,
     ):
         self.playwright = playwright
         self.carrier = carrier
@@ -267,6 +268,7 @@ class TrackingCarrierSession:
         self.chrome_path = chrome_path
         self.minimize_browser = minimize_browser
         self.log = log_func or (lambda msg: None)
+        self.save_pdf = save_pdf
 
         self.browser = None
         self.context = None
@@ -381,7 +383,13 @@ class TrackingCarrierSession:
 
         query_func = getattr(self.module, query_func_name)
 
-        return query_func(self.page, tracking_number)
+        # 所有浏览器承运商使用统一签名。不要捕获 TypeError 后重新查询，
+        # 否则模块内部真正的 TypeError 会导致同一运单被重复提交。
+        return query_func(
+            self.page,
+            tracking_number,
+            save_pdf=self.save_pdf,
+        )
 
     def close(self):
         self.log(f"关闭 {self.carrier} 浏览器环境")
