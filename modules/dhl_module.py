@@ -7,6 +7,20 @@ from urllib.parse import quote
 import pandas as pd
 from playwright.sync_api import sync_playwright
 
+
+def normalize_tracking_number(value):
+    """运单号归一化（本模块自包含，两个应用通用）：去空白（含全角）与 .0。"""
+    if value is None:
+        return ""
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    text = text.replace(" ", "")
+    text = text.replace("\u3000", "")
+    return text
+
 PDF_DIR = r"C:\Users\pengj8\OneDrive - kochind.com\Desktop\jiangpeng\test"
 INPUT_FILE = r"C:\Users\pengj8\OneDrive - kochind.com\Desktop\jiangpeng\dhl_list.xlsx"
 OUTPUT_FILE = r"C:\Users\pengj8\OneDrive - kochind.com\Desktop\jiangpeng\dhl_tracking_result.xlsx"
@@ -44,16 +58,9 @@ DHL_STATUS_EXACT_LIST = [
     "On Hold",
     "Exception",
     "Returned",
+    "Clearance Event",
+    "Shipment is on hold",
 ]
-
-
-def normalize_tracking_number(value):
-    if pd.isna(value):
-        return ""
-    text = str(value).strip()
-    if text.endswith(".0"):
-        text = text[:-2]
-    return text
 
 
 def normalize_status_text(text):
@@ -212,7 +219,12 @@ def extract_status_from_dom(page):
             count = min(locators.count(), 20)
             for i in range(count):
                 try:
-                    text = normalize_status_text(locators.nth(i).inner_text(timeout=1000))
+                    el = locators.nth(i)
+                    # 只采可见元素：页面常藏有视觉隐藏的模板/无障碍文本
+                    # （例如隐藏的 h1 "Delivered"），不可见的一律忽略
+                    if not el.is_visible(timeout=500):
+                        continue
+                    text = normalize_status_text(el.inner_text(timeout=1000))
                     if text:
                         candidates.append(text)
                 except Exception:
@@ -266,23 +278,45 @@ def extract_status_from_text(page_text):
     #    关键：Delivered 绝不走全文模糊匹配——页面任何角落出现
     #    "Delivered" 独立词（历史事件、提示文案等）都不能算送达，
     #    只能由上面的逐行严格匹配（step 1）判定。
+    #    非 Delivered 状态按「首次出现位置最靠前」取（DHL 页面时间线
+    #    最新事件在最上方；例如 8124802604 的 Clearance Event 在页首，
+    #    而 Shipment picked up 在旧事件里，不能按清单顺序误取旧状态）。
     text = re.sub(r"\s+", " ", str(page_text))
+    best_status = ""
+    best_pos = None
     for status in DHL_STATUS_EXACT_LIST:
         if status == "Delivered":
             continue
-        pattern = re.escape(status)
-        if re.search(pattern, text, re.IGNORECASE):
-            return status
+        match = re.search(re.escape(status), text, re.IGNORECASE)
+        if match and (best_pos is None or match.start() < best_pos):
+            best_status = status
+            best_pos = match.start()
+    if best_status:
+        return best_status
 
     return "Unknown"
+
+
+def _body_has_standalone_delivered(page_text):
+    """body 文本逐行是否存在独立 Delivered 行（双重确认用）。"""
+    if not page_text:
+        return False
+    for line in str(page_text).splitlines():
+        if is_dhl_strict_delivered(normalize_status_text(line)):
+            return True
+    return False
 
 
 def extract_status(page, page_text):
     """
     DHL 状态提取总入口。
     先看 DOM 主标题，再看页面文本。
+    关键防线：DOM 声称 Delivered 时，必须 body 文本逐行也存在独立
+    Delivered 行（互相印证），否则视为误判，改从文本提取。
     """
     status = extract_status_from_dom(page)
+    if status == "Delivered" and not _body_has_standalone_delivered(page_text):
+        status = ""  # DOM 误判（隐藏模板文本），重新从文本提取
     if status:
         return status
     return extract_status_from_text(page_text)
@@ -388,9 +422,12 @@ def click_shipment_timeline(page):
 
 def save_dhl_pdf(page, tracking_number):
     """
-    保存 DHL 当前页面为 PDF。
-    文件名为运单号。
+    保存 DHL 当前页面为 PDF（文件名=运单号）。
+
+    playwright 的 page.pdf() 只在 headless 模式可用；本程序用可视浏览器，
+    因此改用 CDP Page.printToPDF（headed 模式同样支持）。
     """
+    import base64
     try:
         remove_overlays(page)
         time.sleep(1)
@@ -402,25 +439,43 @@ def save_dhl_pdf(page, tracking_number):
             pass
 
         pdf_file = Path(PDF_DIR) / f"{tracking_number}.pdf"
-        page.pdf(
-            path=str(pdf_file),
-            format="A4",
-            print_background=True,
-            margin={
-                "top": "10mm",
-                "right": "10mm",
-                "bottom": "10mm",
-                "left": "10mm",
-            },
-        )
-        return str(pdf_file)
+        try:
+            cdp = page.context.new_cdp_session(page)
+            data = cdp.send("Page.printToPDF", {
+                "format": "A4",
+                "printBackground": True,
+                "marginTop": 0.39,
+                "marginBottom": 0.39,
+                "marginLeft": 0.39,
+                "marginRight": 0.39,
+            })
+            pdf_file.write_bytes(base64.b64decode(data["data"]))
+            return str(pdf_file)
+        except Exception as e1:
+            # 兜底：退回 playwright 原生 pdf（headless 时可用）
+            print(f"CDP PDF 失败，尝试原生 pdf: {e1}")
+            try:
+                page.pdf(
+                    path=str(pdf_file),
+                    format="A4",
+                    print_background=True,
+                    margin={
+                        "top": "10mm", "right": "10mm",
+                        "bottom": "10mm", "left": "10mm",
+                    },
+                )
+                return str(pdf_file)
+            except Exception as e2:
+                print(f"PDF保存失败: {tracking_number}")
+                print(str(e2))
+                return ""
     except Exception as e:
         print(f"PDF保存失败: {tracking_number}")
         print(str(e))
         return ""
 
 
-def query_dhl_one(page, tracking_number):
+def query_dhl_one(page, tracking_number, save_pdf=True):
     result = {
         "tracking_number": tracking_number,
         "status": "",
@@ -485,8 +540,12 @@ def query_dhl_one(page, tracking_number):
             result["shipment_timeline_clicked"] = "Yes" if timeline_clicked else "No"
             time.sleep(2)
 
-            pdf_file = save_dhl_pdf(page, tracking_number)
-            result["pdf_file"] = pdf_file
+            # 勾选"只查送达不保存PDF"时跳过 PDF 保存
+            if save_pdf:
+                pdf_file = save_dhl_pdf(page, tracking_number)
+                result["pdf_file"] = pdf_file
+            else:
+                result["pdf_file"] = "(skipped)"
         else:
             result["delivery_date_raw"] = ""
             result["delivery_date"] = ""
