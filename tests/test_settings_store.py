@@ -26,11 +26,18 @@ class SettingsStoreTests(unittest.TestCase):
     def test_settings_round_trip_keeps_known_keys_only(self):
         settings = self.store.load_settings()
         settings["tracking_output_dir"] = "D:/output"
+        settings["fedex_api_secret"] = "fedex-secret"
+        settings["tracking_ei_password"] = "ei-password"
         settings["unknown"] = "discard"
         self.store.save_settings(settings)
         loaded = self.store.load_settings()
         self.assertEqual("D:/output", loaded["tracking_output_dir"])
+        self.assertEqual("fedex-secret", loaded["fedex_api_secret"])
+        self.assertEqual("ei-password", loaded["tracking_ei_password"])
         self.assertNotIn("unknown", loaded)
+        raw = self.store.settings_path.read_text("utf-8")
+        self.assertNotIn("fedex-secret", raw)
+        self.assertNotIn("ei-password", raw)
 
     def test_default_and_custom_mapping_round_trip(self):
         defaults = self.store.load_mappings()

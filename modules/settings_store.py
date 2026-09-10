@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import base64
+import ctypes
 from pathlib import Path
 import re
+import sys
 from typing import Iterable, Optional
 
 from units import get_base_path, read_json, write_json
@@ -49,6 +52,82 @@ DEFAULT_FILENAME_MAPPINGS = [
     FilenameMappingRule(pattern="光联", target_type="光联"),
     FilenameMappingRule(pattern="MPO", target_type="MPO"),
 ]
+
+SECRET_FIELDS = {"fedex_api_secret", "tracking_ei_password"}
+
+
+class _DataBlob(ctypes.Structure):
+    _fields_ = [
+        ("cbData", ctypes.c_uint32),
+        ("pbData", ctypes.POINTER(ctypes.c_ubyte)),
+    ]
+
+
+def _blob(data: bytes):
+    buffer = ctypes.create_string_buffer(data)
+    return _DataBlob(len(data), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte))), buffer
+
+
+def protect_secret(value: str) -> str:
+    """使用当前 Windows 用户的 DPAPI 加密凭据。"""
+    value = str(value or "")
+    if not value or value.startswith("dpapi:"):
+        return value
+    if sys.platform != "win32":
+        return value
+    source, source_buffer = _blob(value.encode("utf-8"))
+    output = _DataBlob()
+    crypt32 = ctypes.windll.crypt32
+    kernel32 = ctypes.windll.kernel32
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    if not crypt32.CryptProtectData(
+        ctypes.byref(source),
+        None,
+        None,
+        None,
+        None,
+        0x01,
+        ctypes.byref(output),
+    ):
+        raise OSError("Windows DPAPI encryption failed")
+    try:
+        encrypted = ctypes.string_at(output.pbData, output.cbData)
+        return "dpapi:" + base64.b64encode(encrypted).decode("ascii")
+    finally:
+        kernel32.LocalFree(ctypes.cast(output.pbData, ctypes.c_void_p))
+        del source_buffer
+
+
+def unprotect_secret(value: str) -> str:
+    value = str(value or "")
+    if not value.startswith("dpapi:") or sys.platform != "win32":
+        return value
+    try:
+        encrypted = base64.b64decode(value[6:], validate=True)
+    except (ValueError, TypeError):
+        return ""
+    source, source_buffer = _blob(encrypted)
+    output = _DataBlob()
+    crypt32 = ctypes.windll.crypt32
+    kernel32 = ctypes.windll.kernel32
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    if not crypt32.CryptUnprotectData(
+        ctypes.byref(source),
+        None,
+        None,
+        None,
+        None,
+        0x01,
+        ctypes.byref(output),
+    ):
+        return ""
+    try:
+        return ctypes.string_at(output.pbData, output.cbData).decode("utf-8")
+    finally:
+        kernel32.LocalFree(ctypes.cast(output.pbData, ctypes.c_void_p))
+        del source_buffer
 
 
 @dataclass(frozen=True)
@@ -108,6 +187,8 @@ class SettingsStore:
         data = read_json(self.settings_path, default={})
         if isinstance(data, dict):
             result.update({key: data[key] for key in DEFAULT_SETTINGS if key in data})
+        for key in SECRET_FIELDS:
+            result[key] = unprotect_secret(result.get(key, ""))
         return result
 
     def save_settings(self, settings: dict) -> None:
@@ -115,6 +196,8 @@ class SettingsStore:
             key: settings.get(key, default)
             for key, default in DEFAULT_SETTINGS.items()
         }
+        for key in SECRET_FIELDS:
+            safe[key] = protect_secret(safe.get(key, ""))
         write_json(self.settings_path, safe)
 
     def load_mappings(self) -> list[FilenameMappingRule]:
