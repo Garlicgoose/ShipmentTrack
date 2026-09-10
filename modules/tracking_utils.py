@@ -7,9 +7,10 @@
 """
 from pathlib import Path
 import importlib
+import math
 import re
 
-import pandas as pd
+from openpyxl import load_workbook
 
 TRACKING_COMPANY_COL_INDEX = 0
 TRACKING_NUMBER_COL_INDEX = 1
@@ -125,7 +126,7 @@ def normalize_tracking_arrival_date(value):
 
 
 def normalize_tracking_number(value):
-    if pd.isna(value):
+    if value is None or (isinstance(value, float) and math.isnan(value)):
         return ""
 
     text = str(value).strip()
@@ -140,7 +141,7 @@ def normalize_tracking_number(value):
 
 
 def normalize_tracking_company_name(value):
-    if pd.isna(value):
+    if value is None or (isinstance(value, float) and math.isnan(value)):
         return ""
 
     text = str(value).strip().upper()
@@ -180,25 +181,36 @@ def normalize_tracking_company_name(value):
     return text
 
 
-def prepare_tracking_input_dataframe(input_file):
-    df = pd.read_excel(input_file, engine="openpyxl")
+def prepare_tracking_input_rows(input_file):
+    """读取并清洗跟踪 Excel，仅保留前两列，返回按承运商排序的字典列表。"""
+    workbook = load_workbook(input_file, read_only=True, data_only=True)
+    try:
+        sheet = workbook.active
+        rows = sheet.iter_rows(values_only=True)
+        header = next(rows, None)
+        if not header or len(header) < 2:
+            raise ValueError("Excel 至少需要两列：第一列快递公司，第二列运单号。")
 
-    if df.shape[1] < 2:
-        raise ValueError("Excel 至少需要两列：第一列快递公司，第二列运单号。")
+        cleaned = []
+        for row in rows:
+            company_original = row[TRACKING_COMPANY_COL_INDEX] if len(row) > 0 else None
+            tracking_original = row[TRACKING_NUMBER_COL_INDEX] if len(row) > 1 else None
+            company = normalize_tracking_company_name(company_original)
+            tracking_number = normalize_tracking_number(tracking_original)
+            if not company or not tracking_number:
+                continue
+            cleaned.append({
+                "快递公司原始值": company_original,
+                "运单号原始值": tracking_original,
+                "快递公司": company,
+                "运单号": tracking_number,
+            })
+    finally:
+        workbook.close()
 
-    company_col = df.columns[TRACKING_COMPANY_COL_INDEX]
-    tracking_col = df.columns[TRACKING_NUMBER_COL_INDEX]
-
-    work_df = df[[company_col, tracking_col]].copy()
-    work_df.columns = ["快递公司原始值", "运单号原始值"]
-
-    work_df["快递公司"] = work_df["快递公司原始值"].apply(normalize_tracking_company_name)
-    work_df["运单号"] = work_df["运单号原始值"].apply(normalize_tracking_number)
-
-    work_df = work_df[work_df["快递公司"] != ""]
-    work_df = work_df[work_df["运单号"] != ""]
-
-    unsupported = sorted(set(work_df["快递公司"]) - set(TRACKING_CARRIER_CONFIG.keys()))
+    unsupported = sorted(
+        {row["快递公司"] for row in cleaned} - set(TRACKING_CARRIER_CONFIG)
+    )
 
     if unsupported:
         raise ValueError(
@@ -207,12 +219,8 @@ def prepare_tracking_input_dataframe(input_file):
             + "\n支持：DHL / DSV / EI / UPS / FedEx"
         )
 
-    work_df = work_df.sort_values(
-        by=["快递公司", "运单号"],
-        ascending=[True, True]
-    ).reset_index(drop=True)
-
-    return work_df
+    cleaned.sort(key=lambda row: (row["快递公司"], row["运单号"]))
+    return cleaned
 
 
 def minimize_browser_window(page):

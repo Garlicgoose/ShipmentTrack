@@ -1,10 +1,10 @@
 import re
 import time
 import random
+import math
 from pathlib import Path
 from urllib.parse import quote
 
-import pandas as pd
 from playwright.sync_api import sync_playwright
 
 
@@ -12,7 +12,7 @@ def normalize_tracking_number(value):
     """运单号归一化（本模块自包含，两个应用通用）：去空白（含全角）与 .0。"""
     if value is None:
         return ""
-    if pd.isna(value):
+    if isinstance(value, float) and math.isnan(value):
         return ""
     text = str(value).strip()
     if text.endswith(".0"):
@@ -597,12 +597,22 @@ def main():
     if not input_path.exists():
         raise FileNotFoundError(f"找不到文件: {INPUT_FILE}")
 
-    df = pd.read_excel(INPUT_FILE, engine="openpyxl")
-
-    if TRACKING_COL not in df.columns:
+    from openpyxl import Workbook, load_workbook
+    input_book = load_workbook(INPUT_FILE, read_only=True, data_only=True)
+    input_sheet = input_book.active
+    source_rows = list(input_sheet.iter_rows(values_only=True))
+    input_book.close()
+    if not source_rows:
+        raise ValueError("Excel 为空")
+    headers = list(source_rows[0])
+    if TRACKING_COL not in headers:
         raise ValueError(f"Excel中找不到列: {TRACKING_COL}")
-
-    tracking_numbers = [normalize_tracking_number(x) for x in df[TRACKING_COL]]
+    tracking_index = headers.index(TRACKING_COL)
+    data_rows = source_rows[1:]
+    tracking_numbers = [
+        normalize_tracking_number(row[tracking_index] if len(row) > tracking_index else None)
+        for row in data_rows
+    ]
     results = []
 
     with sync_playwright() as p:
@@ -627,18 +637,17 @@ def main():
 
         browser.close()
 
-    result_df = pd.DataFrame(results)
-
-    final_df = df.copy()
-    final_df["_tracking_number_clean"] = tracking_numbers
-    final_df = final_df.merge(
-        result_df,
-        left_on="_tracking_number_clean",
-        right_on="tracking_number",
-        how="left",
-    )
-
-    final_df.to_excel(OUTPUT_FILE, index=False, engine="openpyxl")
+    result_columns = list(results[0]) if results else []
+    output_book = Workbook()
+    output_sheet = output_book.active
+    output_sheet.append(tuple(headers) + ("_tracking_number_clean",) + tuple(result_columns))
+    for source_row, tracking_number, result in zip(data_rows, tracking_numbers, results):
+        output_sheet.append(
+            tuple(source_row)
+            + (tracking_number,)
+            + tuple(result.get(column, "") for column in result_columns)
+        )
+    output_book.save(OUTPUT_FILE)
 
     print()
     print("=" * 60)

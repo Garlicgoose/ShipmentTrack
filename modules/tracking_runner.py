@@ -5,15 +5,14 @@
 输出 Excel 列：运单号 / 快递公司 / 状态 / 抵达时间 / 用时(秒) / 备注
 """
 import time
-import traceback
 from pathlib import Path
 
-import pandas as pd
+from openpyxl import Workbook
 
 from modules.tracking_utils import (
     TRACKING_CARRIER_CONFIG,
     TRACKING_OUTPUT_COLUMNS,
-    prepare_tracking_input_dataframe,
+    prepare_tracking_input_rows,
     normalize_tracking_arrival_date,
     TrackingCarrierSession,
 )
@@ -68,13 +67,21 @@ def run_tracking(
     fedex_module.PDF_DIR = str(pdf_root / "FedEx")
 
     log("读取并清洗 Excel")
-    work_df = prepare_tracking_input_dataframe(input_file)
+    work_rows = prepare_tracking_input_rows(input_file)
 
-    if work_df.empty:
+    if not work_rows:
         raise ValueError("清洗后没有可查询的运单号。")
 
     cleaned_file = output_path / "tracking_list_cleaned_sorted.xlsx"
-    work_df.to_excel(cleaned_file, index=False, engine="openpyxl")
+    cleaned_book = Workbook()
+    cleaned_sheet = cleaned_book.active
+    cleaned_sheet.append(("快递公司原始值", "运单号原始值", "快递公司", "运单号"))
+    for row in work_rows:
+        cleaned_sheet.append(tuple(row[column] for column in (
+            "快递公司原始值", "运单号原始值", "快递公司", "运单号"
+        )))
+        cleaned_sheet.cell(cleaned_sheet.max_row, 4).number_format = "@"
+    cleaned_book.save(cleaned_file)
     log(f"已生成清洗排序文件：{cleaned_file}")
 
     results = []
@@ -85,9 +92,9 @@ def run_tracking(
     try:
         from playwright.sync_api import sync_playwright
 
-        total = len(work_df)
+        total = len(work_rows)
 
-        for idx, row in work_df.iterrows():
+        for idx, row in enumerate(work_rows):
             carrier = row["快递公司"]
             tracking_number = row["运单号"]
 
@@ -188,22 +195,14 @@ def run_tracking(
                 pass
         fedex_module.close_shared_session()
 
-    result_df = pd.DataFrame(results, columns=TRACKING_OUTPUT_COLUMNS)
-
     output_file = output_path / "tracking_result.xlsx"
-    result_df.to_excel(output_file, index=False, engine="openpyxl")
-
-    # 运单号按文本储存，避免科学计数法
-    try:
-        from openpyxl import load_workbook
-        wb = load_workbook(output_file)
-        ws = wb.active
-        for row in ws.iter_rows(min_row=2, min_col=1, max_col=1):
-            for cell in row:
-                cell.number_format = "@"
-        wb.save(output_file)
-    except Exception:
-        pass
+    result_book = Workbook()
+    result_sheet = result_book.active
+    result_sheet.append(tuple(TRACKING_OUTPUT_COLUMNS))
+    for item in results:
+        result_sheet.append(tuple(item.get(column, "") for column in TRACKING_OUTPUT_COLUMNS))
+        result_sheet.cell(result_sheet.max_row, 1).number_format = "@"
+    result_book.save(output_file)
 
     log("=" * 60)
     log("全部完成")

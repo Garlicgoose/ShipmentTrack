@@ -6,9 +6,24 @@ from unittest import mock
 from openpyxl import Workbook, load_workbook
 
 from modules.tracking_runner import run_tracking
+from modules.tracking_utils import prepare_tracking_input_rows
 
 
 class TrackingRunnerTests(unittest.TestCase):
+    def test_openpyxl_input_reader_normalizes_and_sorts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "input.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(("快递公司", "运单号"))
+            sheet.append(("UPS", " 1Z 123 "))
+            sheet.append(("fedex", 123456789012))
+            workbook.save(path)
+            rows = prepare_tracking_input_rows(path)
+        self.assertEqual(["FedEx", "UPS"], [row["快递公司"] for row in rows])
+        self.assertEqual("123456789012", rows[0]["运单号"])
+        self.assertEqual("1Z123", rows[1]["运单号"])
+
     def test_result_callback_receives_each_row_and_status_only_is_forwarded(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
