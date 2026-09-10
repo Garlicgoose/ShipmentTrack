@@ -11,6 +11,8 @@ from typing import Callable, Iterable, Optional
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.formula.translate import Translator
+from openpyxl.utils import get_column_letter
 
 from modules.settings_store import FilenameMapper, FilenameMappingRule
 
@@ -66,6 +68,10 @@ def _copy_style(source, target) -> None:
     target.alignment = copy(source.alignment)
     target.number_format = source.number_format
     target.protection = copy(source.protection)
+    if getattr(source, "comment", None) is not None:
+        target.comment = copy(source.comment)
+    if getattr(source, "hyperlink", None) is not None:
+        target._hyperlink = copy(source.hyperlink)
 
 
 def _safe_value(sheet, row: int, column: int):
@@ -103,15 +109,61 @@ def _is_droplist_end_row(sheet, row: int, max_column: int) -> bool:
     return _is_empty_row(sheet, row, max_column)
 
 
+def _copy_column_layout(source_sheet, target_sheet, max_column):
+    for column in range(1, max_column + 1):
+        letter = get_column_letter(column)
+        source = source_sheet.column_dimensions[letter]
+        target = target_sheet.column_dimensions[letter]
+        if source.width is not None:
+            target.width = max(target.width or 0, source.width)
+        target.hidden = target.hidden or source.hidden
+        target.bestFit = target.bestFit or source.bestFit
+        target.outlineLevel = max(target.outlineLevel, source.outlineLevel)
+
+
 def _append_source_row(source_sheet, source_row, target_sheet, target_row, max_column):
+    source_dimension = source_sheet.row_dimensions[source_row]
+    target_dimension = target_sheet.row_dimensions[target_row]
+    target_dimension.height = source_dimension.height
+    target_dimension.hidden = source_dimension.hidden
+    target_dimension.outlineLevel = source_dimension.outlineLevel
+    target_dimension.collapsed = source_dimension.collapsed
     for column in range(1, max_column + 1):
         source = source_sheet.cell(row=source_row, column=column)
+        value = _safe_value(source_sheet, source_row, column)
+        if source.data_type == "f" and isinstance(value, str):
+            try:
+                value = Translator(
+                    value,
+                    origin=source.coordinate,
+                ).translate_formula(get_column_letter(column) + str(target_row))
+            except (TypeError, ValueError):
+                pass
         target = target_sheet.cell(
             row=target_row,
             column=column,
-            value=_safe_value(source_sheet, source_row, column),
+            value=value,
         )
         _copy_style(source, target)
+
+
+def _copy_merged_ranges(source_sheet, target_sheet, row_map, max_column):
+    """把完整落在已复制行中的合并区域平移到目标表。"""
+    for merged in source_sheet.merged_cells.ranges:
+        if merged.max_col > max_column:
+            continue
+        source_rows = list(range(merged.min_row, merged.max_row + 1))
+        if not all(row in row_map for row in source_rows):
+            continue
+        target_rows = [row_map[row] for row in source_rows]
+        if target_rows != list(range(target_rows[0], target_rows[0] + len(target_rows))):
+            continue
+        target_sheet.merge_cells(
+            start_row=target_rows[0],
+            start_column=merged.min_col,
+            end_row=target_rows[-1],
+            end_column=merged.max_col,
+        )
 
 
 def _append_metadata_headers(sheet, row, start_column):
@@ -168,11 +220,17 @@ def _merge_inspect(
         workbook = load_workbook(file, data_only=False)
         source = workbook.active
         max_column = source.max_column
+        _copy_column_layout(source, output_sheet, max_column)
+        if file_index == 0:
+            output_sheet.sheet_view.showGridLines = source.sheet_view.showGridLines
         if source.max_row < 2:
             issues.append(("检验表", file.name, "没有数据行"))
+            workbook.close()
             continue
+        row_map = {}
         if not fixed_columns:
             fixed_columns = max_column
+            row_map[1] = target_row
             _append_source_row(source, 1, output_sheet, target_row, fixed_columns)
             _append_metadata_headers(output_sheet, target_row, fixed_columns + 1)
             target_row += 1
@@ -189,8 +247,8 @@ def _merge_inspect(
             issues.append(("检验表", file.name, "文件名和父文件夹均无法识别日期"))
 
         for source_row in range(2, source.max_row + 1):
-            if _is_empty_row(source, source_row, max_column):
-                continue
+            row_map[source_row] = target_row
+            empty_row = _is_empty_row(source, source_row, max_column)
             _append_source_row(
                 source,
                 source_row,
@@ -198,20 +256,24 @@ def _merge_inspect(
                 target_row,
                 min(max_column, fixed_columns),
             )
-            _append_metadata(
-                output_sheet,
-                target_row,
-                fixed_columns + 1,
-                match.target_type,
-                date_label,
-                file.name,
-                match.note,
-            )
-            totals[(date_label, match.target_type)] += _quantity(
-                _safe_value(source, source_row, 6)
-            )
+            if not empty_row:
+                _append_metadata(
+                    output_sheet,
+                    target_row,
+                    fixed_columns + 1,
+                    match.target_type,
+                    date_label,
+                    file.name,
+                    match.note,
+                )
+                totals[(date_label, match.target_type)] += _quantity(
+                    _safe_value(source, source_row, 6)
+                )
             target_row += 1
-            data_rows += 1
+            if not empty_row:
+                data_rows += 1
+        _copy_merged_ranges(source, output_sheet, row_map, fixed_columns)
+        workbook.close()
 
     return totals, len(files), data_rows
 
@@ -241,6 +303,7 @@ def _merge_droplist(
         workbook = load_workbook(file, data_only=False)
         if len(workbook.sheetnames) < 3:
             issues.append(("Droplist", file.name, "工作表数量少于 3 个"))
+            workbook.close()
             continue
 
         match = mapper.match(file.name)
@@ -256,8 +319,11 @@ def _merge_droplist(
             if source.max_row < 4:
                 continue
             max_column = source.max_column
+            _copy_column_layout(source, output_sheet, max_column)
+            row_map = {}
             if not fixed_columns:
                 fixed_columns = max_column
+                row_map[3] = target_row
                 _append_source_row(source, 3, output_sheet, target_row, fixed_columns)
                 _append_metadata_headers(output_sheet, target_row, fixed_columns + 1)
                 target_row += 1
@@ -269,6 +335,7 @@ def _merge_droplist(
             for source_row in range(4, source.max_row + 1):
                 if _is_droplist_end_row(source, source_row, max_column):
                     break
+                row_map[source_row] = target_row
                 _append_source_row(
                     source,
                     source_row,
@@ -291,8 +358,10 @@ def _merge_droplist(
                 target_row += 1
                 data_rows += 1
                 file_rows += 1
+            _copy_merged_ranges(source, output_sheet, row_map, fixed_columns)
         if not file_rows:
             issues.append(("Droplist", file.name, "没有有效数据行"))
+        workbook.close()
 
     return totals, len(files), data_rows
 
@@ -326,7 +395,8 @@ def _build_reconcile_rows(inspect_totals, droplist_totals) -> tuple[ReconcileRow
 def _style_output(workbook) -> None:
     dark_fill = PatternFill("solid", fgColor="173F5F")
     light_fill = PatternFill("solid", fgColor="EAF2F7")
-    for sheet in workbook.worksheets:
+    # 合并明细页保留源文件格式；只格式化本程序新建的汇总和异常页。
+    for sheet in (workbook["核对汇总"], workbook["异常文件"]):
         sheet.sheet_view.showGridLines = False
         sheet.freeze_panes = "A2" if sheet.max_row > 1 else None
         for cell in sheet[1]:

@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill
 
 from modules.excel_reconcile import extract_date_from_name, merge_and_reconcile_excel
 from modules.settings_store import FilenameMappingRule
@@ -11,9 +12,14 @@ from modules.settings_store import FilenameMappingRule
 def create_inspect(path: Path, quantities):
     workbook = Workbook()
     sheet = workbook.active
-    sheet.append(["A", "B", "C", "D", "E", "Packed quantity"])
+    sheet.append(["A", "B", "C", "D", "E", "Packed quantity", "Double"])
+    sheet.column_dimensions["A"].width = 24
     for index, quantity in enumerate(quantities, 1):
-        sheet.append([f"row-{index}", "", "", "", "", quantity])
+        row = sheet.max_row + 1
+        sheet.append([f"row-{index}", "merged", "", "", "", quantity, f"=F{row}*2"])
+        sheet.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
+        sheet.row_dimensions[row].height = 28
+        sheet.cell(row, 1).fill = PatternFill("solid", fgColor="DDEBF7")
     workbook.save(path)
 
 
@@ -90,11 +96,19 @@ class ExcelReconcileTests(unittest.TestCase):
             ["核对汇总", "合并检验表", "合并Droplist", "异常文件"],
             workbook.sheetnames,
         )
-        self.assertEqual("类型", workbook["合并检验表"][1][6].value)
+        self.assertEqual("类型", workbook["合并检验表"][1][7].value)
         inspect_rows = list(workbook["合并检验表"].iter_rows(min_row=2, values_only=True))
-        guanglian = next(row for row in inspect_rows if row[6] == "光联")
-        self.assertEqual("光联业务", guanglian[9])
+        guanglian = next(row for row in inspect_rows if row[7] == "光联")
+        self.assertEqual("光联业务", guanglian[10])
         self.assertFalse(workbook["核对汇总"].sheet_view.showGridLines)
+
+        merged_sheet = workbook["合并检验表"]
+        self.assertEqual(24, merged_sheet.column_dimensions["A"].width)
+        self.assertEqual(28, merged_sheet.row_dimensions[2].height)
+        self.assertEqual("00DDEBF7", merged_sheet["A2"].fill.fgColor.rgb)
+        self.assertIn("B2:C2", {str(item) for item in merged_sheet.merged_cells.ranges})
+        # 第二个文件的数据被追加到后续行，公式引用必须同步平移。
+        self.assertEqual("=F3*2", merged_sheet["G3"].value)
 
     def test_unmatched_files_are_kept_and_reported(self):
         create_inspect(self.inspect / "9.11 未知客户.xlsx", [7])
