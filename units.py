@@ -2,6 +2,8 @@
 """Shipment Track 基础工具：路径 / JSON 读写。"""
 import sys
 import json
+import os
+import tempfile
 from pathlib import Path
 
 
@@ -21,16 +23,32 @@ def read_json(file_path, default=None):
 
 
 def write_json(file_path, data):
+    """以 UTF-8 原子写入 JSON，避免程序中断留下半个配置文件。"""
     file_path = Path(file_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=file_path.name + ".",
+        suffix=".tmp",
+        dir=str(file_path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        Path(temp_name).replace(file_path)
+    except Exception:
+        try:
+            Path(temp_name).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def detect_chrome_path():
-    """自动探测 Playwright Chromium 的 chrome.exe 路径。
+    """自动探测外接 Playwright Chromium 的 chrome.exe 路径。
 
-    优先 exe 同级目录 chrome/（打包时复制进去的），
+    Chromium 不进入程序安装包。优先查找 exe 同级目录 chrome/，
     其次 %LOCALAPPDATA%\\ms-playwright\\chromium-*。
     """
     import os
@@ -38,6 +56,9 @@ def detect_chrome_path():
     candidates = [
         base / "chrome" / "chrome-win64" / "chrome.exe",
         base / "chrome" / "chrome-win" / "chrome.exe",
+        base / "chromium" / "chrome-win64" / "chrome.exe",
+        base / "chromium" / "chrome-win" / "chrome.exe",
+        base / "chromium" / "chrome.exe",
     ]
     for c in candidates:
         if c.exists():
