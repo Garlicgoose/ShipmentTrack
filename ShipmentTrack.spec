@@ -6,7 +6,11 @@ Chromium 浏览器单独放在 exe 同级的 chrome/ 目录（见 build.ps1 的�
 """
 from PyInstaller.utils.hooks import collect_all
 
-datas = [("assets/app_icon.ico", "assets"), ("assets/app_icon.png", "assets")]
+datas = [
+    ("assets/app_icon.ico", "assets"),
+    ("assets/app_icon.png", "assets"),
+    ("assets/github_avatar.jpg", "assets"),
+]
 binaries = []
 hiddenimports = [
     # importlib 动态加载的快递模块（PyInstaller 无法静态发现）
