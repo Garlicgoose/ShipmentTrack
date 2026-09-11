@@ -18,6 +18,7 @@ class SettingsStoreTests(unittest.TestCase):
         self.store = SettingsStore(
             settings_path=root / "settings.json",
             mappings_path=root / "filename_mappings.json",
+            delivery_statuses_path=root / "delivery_status_mappings.json",
         )
 
     def tearDown(self):
@@ -75,6 +76,16 @@ class SettingsStoreTests(unittest.TestCase):
 
     def test_chromium_detection_function_remains_available(self):
         self.assertIsInstance(detect_chrome_path(), str)
+
+    def test_custom_delivery_statuses_round_trip(self):
+        self.store.save_delivery_statuses({
+            "EI": ["交给其他清关人"],
+            "DSV": ["Cargo released", "Cargo released"],
+        })
+        self.assertEqual(
+            {"EI": ["交给其他清关人"], "DSV": ["Cargo released"]},
+            self.store.load_delivery_statuses(),
+        )
 
 
 if __name__ == "__main__":

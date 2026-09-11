@@ -41,6 +41,7 @@ def run_tracking(
     log=None,
     progress=None,
     result=None,
+    delivery_statuses=None,
 ):
     """执行批量查询。三个回调用于日志、进度和逐条结果。"""
     log = log or (lambda msg: None)
@@ -119,6 +120,7 @@ def run_tracking(
                         minimize_browser=minimize_browser,
                         log_func=log,
                         save_pdf=save_pdf,
+                        delivery_statuses=delivery_statuses,
                     )
                     session.start()
 

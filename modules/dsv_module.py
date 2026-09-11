@@ -3,6 +3,19 @@ import time
 import random
 from pathlib import Path
 
+from modules.status_rules import matches_exact_status
+
+
+CUSTOM_DELIVERED_STATUSES = ()
+
+
+def is_dsv_delivered(status):
+    return matches_exact_status(
+        status,
+        default_statuses=("Completed", "Delivered"),
+        custom_statuses=CUSTOM_DELIVERED_STATUSES,
+    )
+
 
 PDF_DIR = r"output\pdf\DSV"
 
@@ -659,7 +672,7 @@ def query_dsv_one(page, tracking_number, save_pdf=True):
 
         arrival_time = extract_arrival_from_search_result(page_text)
 
-        if status.lower() in ["completed", "delivered"]:
+        if is_dsv_delivered(status):
             result["is_delivered"] = True
 
             clicked = click_dsv_shipment_result(page, tracking_number)

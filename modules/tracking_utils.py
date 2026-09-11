@@ -269,6 +269,7 @@ class TrackingCarrierSession:
         minimize_browser=True,
         log_func=None,
         save_pdf=True,
+        delivery_statuses=None,
     ):
         self.playwright = playwright
         self.carrier = carrier
@@ -280,6 +281,7 @@ class TrackingCarrierSession:
         self.minimize_browser = minimize_browser
         self.log = log_func or (lambda msg: None)
         self.save_pdf = save_pdf
+        self.delivery_statuses = delivery_statuses or {}
 
         self.browser = None
         self.context = None
@@ -298,6 +300,13 @@ class TrackingCarrierSession:
                 self.module.EXPO_PASSWORD = self.ei_password
             if hasattr(self.module, "EI_LOGIN_ENABLED"):
                 self.module.EI_LOGIN_ENABLED = self.ei_login_enabled
+
+        if hasattr(self.module, "CUSTOM_DELIVERED_STATUSES"):
+            setattr(
+                self.module,
+                "CUSTOM_DELIVERED_STATUSES",
+                tuple(self.delivery_statuses.get(self.carrier, ())),
+            )
 
         pdf_dir = self.output_dir / "pdf" / self.config["pdf_subdir"]
         pdf_dir.mkdir(parents=True, exist_ok=True)

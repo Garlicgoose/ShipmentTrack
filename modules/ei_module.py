@@ -3,6 +3,11 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
+from modules.status_rules import matches_exact_status
+
+
+CUSTOM_DELIVERED_STATUSES = ()
+
 
 PDF_DIR = r"output\pdf\EI"
 
@@ -603,7 +608,11 @@ def extract_services_completed_date(page_text):
 def is_expeditors_delivered(status, page_text):
     # 你的新规则：只看 status，必须是 Completed 才算抵达。
     # On Time / Services Completed 空字段，不再算抵达，也不会下载 PDF。
-    return (status or "").strip().lower() == "completed"
+    return matches_exact_status(
+        status,
+        default_statuses=("Completed",),
+        custom_statuses=CUSTOM_DELIVERED_STATUSES,
+    )
 
 
 def get_arrival_time(page_text):

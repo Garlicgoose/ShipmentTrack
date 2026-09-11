@@ -56,6 +56,8 @@ DEFAULT_FILENAME_MAPPINGS = [
     FilenameMappingRule(pattern="MPO", target_type="MPO", display_type="MPO"),
 ]
 
+DELIVERY_STATUS_CARRIERS = ("EI", "DSV")
+
 SECRET_FIELDS = {"fedex_api_secret", "tracking_ei_password"}
 
 
@@ -183,10 +185,14 @@ class SettingsStore:
         self,
         settings_path: Optional[Path] = None,
         mappings_path: Optional[Path] = None,
+        delivery_statuses_path: Optional[Path] = None,
     ):
         base = get_base_path()
         self.settings_path = Path(settings_path or base / "settings.json")
         self.mappings_path = Path(mappings_path or base / "filename_mappings.json")
+        self.delivery_statuses_path = Path(
+            delivery_statuses_path or base / "delivery_status_mappings.json"
+        )
 
     def load_settings(self) -> dict:
         result = dict(DEFAULT_SETTINGS)
@@ -235,3 +241,30 @@ class SettingsStore:
         normalized = [rule.normalized() for rule in rules]
         valid = [rule for rule in normalized if rule.pattern and rule.target_type]
         write_json(self.mappings_path, [asdict(rule) for rule in valid])
+
+    def load_delivery_statuses(self) -> dict[str, list[str]]:
+        data = read_json(self.delivery_statuses_path, default={})
+        result = {carrier: [] for carrier in DELIVERY_STATUS_CARRIERS}
+        if not isinstance(data, dict):
+            return result
+        for carrier in DELIVERY_STATUS_CARRIERS:
+            values = data.get(carrier, [])
+            if not isinstance(values, list):
+                continue
+            result[carrier] = list(dict.fromkeys(
+                str(value or "").strip()
+                for value in values
+                if str(value or "").strip()
+            ))
+        return result
+
+    def save_delivery_statuses(self, mapping: dict[str, Iterable[str]]) -> None:
+        data = {}
+        for carrier in DELIVERY_STATUS_CARRIERS:
+            values = mapping.get(carrier, [])
+            data[carrier] = list(dict.fromkeys(
+                str(value or "").strip()
+                for value in values
+                if str(value or "").strip()
+            ))
+        write_json(self.delivery_statuses_path, data)
