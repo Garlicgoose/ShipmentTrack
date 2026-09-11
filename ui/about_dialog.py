@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton)
 
 APP_NAME = "Shipment Track"
-APP_VERSION = "0.7"
+APP_VERSION = "0.8"
 
 
 class AboutDialog(QDialog):

@@ -30,6 +30,8 @@ class PackagingConfigTests(unittest.TestCase):
         guide = (ROOT / "使用说明.txt").read_text("utf-8")
         self.assertIn("Chromium 外接", readme)
         self.assertIn("Chromium 不在程序目录中", guide)
+        self.assertIn("合并检验表.xlsx", readme)
+        self.assertIn("归总类别只允许光联或 MPO", readme)
 
     def test_packaged_app_has_offline_smoke_mode(self):
         main_source = (ROOT / "main.py").read_text("utf-8")

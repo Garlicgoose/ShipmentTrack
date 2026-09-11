@@ -1,4 +1,4 @@
-# ShipmentTrack v0.7
+# ShipmentTrack v0.8
 
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
@@ -25,11 +25,16 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 - 跟踪：读取两列 Excel（快递公司、运单号），实时显示状态、抵达时间和备注。
 - POD 抽查：风险件必查，其余成功 POD 随机抽查并输出 `pod_audit.xlsx`。
-- Excel 合并与核对：合并检验表和 Droplist，按日期与类型比较数量。
+- Excel 合并与核对：输出 `合并检验表.xlsx` 和 `合并Droplist.xlsx`，按日期与
+  光联/MPO 归总类别比较数量。检验表明细仍保留澳车、港车、814S 等原类型。
 - 设置：维护 FedEx API、EI 账号、默认路径、外接 Chromium 和文件名映射。
 
-文件名映射由界面写入 `filename_mappings.json`。FedEx API Secret 和 EI 密码
-使用当前 Windows 用户的 DPAPI 加密后写入设置文件。
+界面中的 POD 绿色圆点、查询结果、清洗文件、POD 抽查和两份合并 Excel
+均可直接点击打开。
+
+文件名映射由界面写入 `filename_mappings.json`。每条规则保存文件名关键字、
+检验表原类型和用于核对的归总类别；归总类别只允许光联或 MPO。FedEx API
+Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置文件。
 
 ## FedEx 逻辑（2026-09-02 修订）
 - 先 trackingnumbers 正常查主单（非 MPS）——无子单运单以官网状态为准
