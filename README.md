@@ -54,6 +54,7 @@ Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置�
 main.py / units.py / license.py / machine_id.py / ShipmentTrack.spec
 modules/（跟踪、设置、Excel 合并与核对）
 ui/（PySide6 原生界面） / assets/（图标与本地头像）
+docs/ARCHITECTURE.md（框架与目录职责）
 filename_mappings.json（由设置页维护）
 delivery_status_mappings.json（EI/DSV 额外抵达状态）
 requirements.txt（经过打包验证的依赖版本）
