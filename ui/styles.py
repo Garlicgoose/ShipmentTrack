@@ -10,9 +10,9 @@ APP_STYLE = r"""
 }
 QMainWindow, QWidget#appRoot { background: #F4F7FA; }
 QFrame#sidebar { background: #102A43; border: none; }
-QLabel#brandName { color: white; font-size: 17px; font-weight: 700; }
 QLabel#profileName { color: white; font-weight: 600; }
 QLabel#profileCaption { color: #90A9BC; font-size: 11px; }
+QLabel#popupProfileName { font-size: 15px; font-weight: 700; color: #172B3C; }
 QLabel#pageTitle { font-size: 24px; font-weight: 700; color: #172B3C; }
 QLabel#sectionTitle { font-size: 16px; font-weight: 700; color: #20384C; }
 QLabel#muted { color: #708294; }
@@ -81,6 +81,26 @@ QPushButton#primaryButton {
 QPushButton#primaryButton:hover { background: #087A74; border-color: #087A74; }
 QPushButton#dangerButton { color: #A84343; }
 QPushButton#smallButton { min-height: 30px; padding: 0 10px; }
+QPushButton#fileLinkButton {
+    min-height: 28px;
+    padding: 0 9px;
+    color: #087A74;
+    background: #E7F6F3;
+    border: 1px solid #C3E8E3;
+    border-radius: 6px;
+}
+QPushButton#fileLinkButton:hover { background: #D8F0EC; border-color: #88CEC5; }
+QPushButton#fileLinkButton:disabled { color: #9AA8B4; background: #F2F5F7; border-color: #E2E8EC; }
+QPushButton#filterChip {
+    min-height: 30px;
+    padding: 0 11px;
+    border-radius: 15px;
+    color: #607386;
+    background: #F4F7F9;
+    border: 1px solid #DCE5EB;
+}
+QPushButton#filterChip:hover { color: #173F5F; background: #ECF2F5; }
+QPushButton#filterChip:checked { color: white; background: #173F5F; border-color: #173F5F; }
 
 QRadioButton, QCheckBox { spacing: 7px; }
 QRadioButton::indicator, QCheckBox::indicator { width: 16px; height: 16px; }
@@ -100,11 +120,12 @@ QTableView, QTableWidget, QPlainTextEdit {
     background: white;
     border: 1px solid #DDE6ED;
     border-radius: 9px;
-    gridline-color: #E8EEF2;
+    gridline-color: transparent;
     selection-background-color: #E4F4F2;
     selection-color: #172B3C;
 }
-QTableView::item, QTableWidget::item { padding: 7px; border-bottom: 1px solid #E8EEF2; }
+QTableView::item, QTableWidget::item { padding: 8px; border-bottom: 1px solid #ECF1F4; }
+QTableView::item:hover, QTableWidget::item:hover { background: #F5FAFA; }
 QHeaderView::section {
     background: #F6F9FB;
     color: #657889;
@@ -114,6 +135,11 @@ QHeaderView::section {
     font-weight: 700;
 }
 QPlainTextEdit { padding: 7px; color: #506577; font-family: Consolas, "Microsoft YaHei UI"; }
+QPlainTextEdit#trackingLog { background: #F8FAFB; border-color: #E1E8ED; }
+
+QFrame#profileButton { border-radius: 8px; background: transparent; }
+QFrame#profileButton:hover { background: #183B57; }
+QDialog#profilePopup { background: white; border: 1px solid #D7E2EA; border-radius: 12px; }
 
 QScrollArea { border: none; background: transparent; }
 QScrollArea > QWidget > QWidget { background: transparent; }

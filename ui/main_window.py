@@ -2,13 +2,12 @@
 """ShipmentTrack 原生主窗口。"""
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
     QFrame,
-    QComboBox,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QHeaderView,
@@ -19,7 +18,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QRadioButton,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -29,7 +27,16 @@ from PySide6.QtWidgets import (
 
 from modules.excel_reconcile import merge_and_reconcile_excel
 from modules.settings_store import SettingsStore
-from ui.components import PathField, StatCard, circular_pixmap
+from ui.components import (
+    ClickableFrame,
+    OpenFileButton,
+    PathField,
+    ProfilePopup,
+    StatCard,
+    ToggleSwitch,
+    circular_pixmap,
+    position_popup,
+)
 from ui.settings_page import SettingsPage
 from ui.styles import APP_STYLE
 from ui.workers import TaskWorker
@@ -97,22 +104,10 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(210)
+        sidebar.setFixedWidth(168)
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(16, 22, 16, 18)
+        layout.setContentsMargins(12, 18, 12, 14)
         layout.setSpacing(7)
-
-        brand = QHBoxLayout()
-        icon = QLabel()
-        icon.setPixmap(QIcon(APP_ICON).pixmap(34, 34))
-        name = QLabel("ShipmentTrack")
-        name.setObjectName("brandName")
-        brand.addWidget(icon)
-        brand.addSpacing(4)
-        brand.addWidget(name)
-        brand.addStretch(1)
-        layout.addLayout(brand)
-        layout.addSpacing(24)
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
@@ -135,7 +130,11 @@ class MainWindow(QMainWindow):
         profile_line.setStyleSheet("background:#29485F;border:none;")
         layout.addWidget(profile_line)
         layout.addSpacing(8)
-        profile = QHBoxLayout()
+        self.profile_button = ClickableFrame()
+        self.profile_button.setObjectName("profileButton")
+        self.profile_button.setCursor(Qt.PointingHandCursor)
+        profile = QHBoxLayout(self.profile_button)
+        profile.setContentsMargins(6, 7, 6, 7)
         avatar = QLabel()
         avatar.setObjectName("profileAvatar")
         avatar.setPixmap(circular_pixmap(PROFILE_AVATAR, 36))
@@ -152,7 +151,11 @@ class MainWindow(QMainWindow):
         profile.addSpacing(3)
         profile.addLayout(profile_text)
         profile.addStretch(1)
-        layout.addLayout(profile)
+        self.profile_popup = ProfilePopup(PROFILE_AVATAR, PROFILE_NAME, self)
+        self.profile_button.clicked.connect(
+            lambda: position_popup(self.profile_popup, self.profile_button)
+        )
+        layout.addWidget(self.profile_button)
         return sidebar
 
     def _build_tracking_page(self):
@@ -198,14 +201,15 @@ class MainWindow(QMainWindow):
         output_box.addWidget(self.tracking_output)
         fields.addLayout(output_box, 5)
         mode_box = QVBoxLayout()
-        mode_box.addWidget(self._field_label("运行模式"))
+        mode_box.addWidget(self._field_label("下载"))
         mode_row = QHBoxLayout()
-        self.mode_pod = QRadioButton("状态 + POD")
-        self.mode_status = QRadioButton("只查状态")
-        self.mode_status.setChecked(bool(self.settings.get("only_arrival")))
-        self.mode_pod.setChecked(not self.mode_status.isChecked())
-        mode_row.addWidget(self.mode_pod)
-        mode_row.addWidget(self.mode_status)
+        self.pod_switch = ToggleSwitch()
+        self.pod_switch.setObjectName("podSwitch")
+        self.pod_switch.setChecked(not bool(self.settings.get("only_arrival")))
+        self.pod_switch.setToolTip("关闭后只查询状态，不下载 POD")
+        mode_row.addWidget(self.pod_switch)
+        mode_row.addWidget(QLabel("POD"))
+        mode_row.addStretch(1)
         mode_box.addLayout(mode_row)
         fields.addLayout(mode_box, 3)
         self.run_button = QPushButton("开始查询")
@@ -235,15 +239,31 @@ class MainWindow(QMainWindow):
         filter_row = QHBoxLayout()
         filter_row.addWidget(results_title)
         filter_row.addStretch(1)
+        self.tracking_filter_group = QButtonGroup(self)
+        self.tracking_filter_group.setExclusive(True)
+        self.tracking_filter_buttons = {}
+        for key, text in (
+            ("", "全部"),
+            ("delivered", "已送达"),
+            ("transit", "运输中"),
+            ("attention", "需要关注"),
+        ):
+            button = QPushButton(text)
+            button.setObjectName("filterChip")
+            button.setCheckable(True)
+            button.clicked.connect(
+                lambda checked=False, bucket=key: self._set_tracking_filter(bucket)
+            )
+            self.tracking_filter_group.addButton(button)
+            self.tracking_filter_buttons[key] = button
+            filter_row.addWidget(button)
+        self.tracking_filter_buttons[""].setChecked(True)
+        self._tracking_filter_bucket = ""
         self.tracking_search = QLineEdit()
         self.tracking_search.setPlaceholderText("搜索运单号")
         self.tracking_search.setMaximumWidth(210)
         self.tracking_search.textChanged.connect(self._filter_tracking_rows)
-        self.tracking_filter = QComboBox()
-        self.tracking_filter.addItems(("全部状态", "已送达", "运输中", "需要关注"))
-        self.tracking_filter.currentIndexChanged.connect(self._filter_tracking_rows)
         filter_row.addWidget(self.tracking_search)
-        filter_row.addWidget(self.tracking_filter)
         results_layout.addLayout(filter_row)
         self.tracking_table = QTableWidget(0, 7)
         self.tracking_table.setObjectName("trackingTable")
@@ -252,17 +272,33 @@ class MainWindow(QMainWindow):
         )
         self.tracking_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tracking_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.tracking_table.setAlternatingRowColors(True)
+        self.tracking_table.setAlternatingRowColors(False)
+        self.tracking_table.setShowGrid(False)
+        self.tracking_table.verticalHeader().setVisible(False)
+        self.tracking_table.verticalHeader().setDefaultSectionSize(40)
+        self.tracking_table.cellClicked.connect(self._handle_tracking_cell_click)
         self.tracking_table.cellDoubleClicked.connect(self._show_tracking_detail)
         header = self.tracking_table.horizontalHeader()
         for column in range(6):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(6, QHeaderView.Stretch)
         results_layout.addWidget(self.tracking_table, 1)
+        log_header = QHBoxLayout()
+        log_title = QLabel("运行记录")
+        log_title.setObjectName("muted")
+        log_header.addWidget(log_title)
+        log_header.addStretch(1)
+        self.open_tracking_result = OpenFileButton("打开结果")
+        self.open_cleaned_result = OpenFileButton("打开清洗文件")
+        self.open_pod_audit = OpenFileButton("打开 POD 抽查")
+        log_header.addWidget(self.open_tracking_result)
+        log_header.addWidget(self.open_cleaned_result)
+        log_header.addWidget(self.open_pod_audit)
+        results_layout.addLayout(log_header)
         self.tracking_log = QPlainTextEdit()
         self.tracking_log.setObjectName("trackingLog")
         self.tracking_log.setReadOnly(True)
-        self.tracking_log.setMaximumHeight(78)
+        self.tracking_log.setMaximumHeight(92)
         self.tracking_log.setPlaceholderText("运行日志")
         results_layout.addWidget(self.tracking_log)
         layout.addWidget(results_card, 1)
@@ -285,7 +321,7 @@ class MainWindow(QMainWindow):
         for label, attribute, value, mode in (
             ("检验表文件夹", "inspect_input", self.settings.get("inspect_input_dir", ""), "dir"),
             ("Droplist 文件夹", "droplist_input", self.settings.get("droplist_input_dir", ""), "dir"),
-            ("输出文件", "excel_output", self.settings.get("excel_output_file", ""), "save"),
+            ("输出文件夹", "excel_output", self.settings.get("excel_output_dir", ""), "dir"),
         ):
             row = QHBoxLayout()
             caption = self._field_label(label)
@@ -317,9 +353,15 @@ class MainWindow(QMainWindow):
         results_layout = QVBoxLayout(results_card)
         results_layout.setContentsMargins(18, 15, 18, 15)
         results_layout.setSpacing(10)
+        summary_row = QHBoxLayout()
         self.excel_summary = QLabel("尚未运行")
         self.excel_summary.setObjectName("muted")
-        results_layout.addWidget(self.excel_summary)
+        summary_row.addWidget(self.excel_summary, 1)
+        self.open_inspect_output = OpenFileButton("打开合并检验表")
+        self.open_droplist_output = OpenFileButton("打开合并 Droplist")
+        summary_row.addWidget(self.open_inspect_output)
+        summary_row.addWidget(self.open_droplist_output)
+        results_layout.addLayout(summary_row)
         self.excel_table = QTableWidget(0, 6)
         self.excel_table.setObjectName("excelTable")
         self.excel_table.setHorizontalHeaderLabels(
@@ -327,6 +369,9 @@ class MainWindow(QMainWindow):
         )
         self.excel_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.excel_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.excel_table.setShowGrid(False)
+        self.excel_table.verticalHeader().setVisible(False)
+        self.excel_table.verticalHeader().setDefaultSectionSize(40)
         self.excel_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         results_layout.addWidget(self.excel_table, 1)
         layout.addWidget(results_card, 1)
@@ -385,11 +430,17 @@ class MainWindow(QMainWindow):
         settings = dict(self.settings)
         settings["tracking_input_file"] = input_file
         settings["tracking_output_dir"] = output_dir
-        settings["only_arrival"] = self.mode_status.isChecked()
+        settings["only_arrival"] = not self.pod_switch.isChecked()
         self.store.save_settings(settings)
         self.settings = settings
         self.tracking_table.setRowCount(0)
         self.tracking_log.clear()
+        for button in (
+            self.open_tracking_result,
+            self.open_cleaned_result,
+            self.open_pod_audit,
+        ):
+            button.set_path("")
         self._tracking_counts = {"total": 0, "delivered": 0, "transit": 0, "attention": 0}
         self._update_tracking_stats()
         self._set_tracking_running(True)
@@ -434,11 +485,20 @@ class MainWindow(QMainWindow):
             result.get("状态", ""),
             result.get("抵达时间", ""),
             result.get("用时(秒)", ""),
-            Path(result.get("POD文件", "")).name if result.get("POD文件") else "未下载",
+            "",
             result.get("备注", ""),
         ]
         for column, value in enumerate(values):
             self.tracking_table.setItem(row, column, QTableWidgetItem(str(value)))
+
+        pod_path = str(result.get("POD文件", "") or "")
+        pod_exists = bool(pod_path and Path(pod_path).is_file())
+        pod_item = self.tracking_table.item(row, 5)
+        pod_item.setText("●" if pod_exists else "·")
+        pod_item.setTextAlignment(Qt.AlignCenter)
+        pod_item.setData(Qt.UserRole, pod_path if pod_exists else "")
+        pod_item.setForeground(QColor("#21A366" if pod_exists else "#AAB6BF"))
+        pod_item.setToolTip("点击打开 POD" if pod_exists else "没有 POD")
 
         status = str(result.get("状态", "")).casefold()
         remark = str(result.get("备注", ""))
@@ -452,9 +512,19 @@ class MainWindow(QMainWindow):
         else:
             bucket = "transit"
             color = QColor("#3175B8")
+        status_background = {
+            "delivered": QColor("#E8F6EE"),
+            "transit": QColor("#EAF2FB"),
+            "attention": QColor("#FFF4DD"),
+        }[bucket]
         self._tracking_counts[bucket] += 1
         self.tracking_table.item(row, 0).setData(Qt.UserRole, bucket)
         self.tracking_table.item(row, 2).setForeground(color)
+        self.tracking_table.item(row, 2).setBackground(status_background)
+        self.tracking_table.item(row, 2).setTextAlignment(Qt.AlignCenter)
+        for column in (1, 3, 4, 5):
+            self.tracking_table.item(row, column).setTextAlignment(Qt.AlignCenter)
+        self.tracking_table.item(row, 6).setToolTip(str(result.get("备注", "")))
         self._update_tracking_stats()
         self._filter_tracking_rows()
         self.tracking_table.scrollToBottom()
@@ -462,15 +532,22 @@ class MainWindow(QMainWindow):
     def _update_tracking_stats(self):
         for key, card in self.tracking_stats.items():
             card.set_value(self._tracking_counts[key])
+        labels = {
+            "": ("全部", self._tracking_counts["total"]),
+            "delivered": ("已送达", self._tracking_counts["delivered"]),
+            "transit": ("运输中", self._tracking_counts["transit"]),
+            "attention": ("需要关注", self._tracking_counts["attention"]),
+        }
+        for key, (label, count) in labels.items():
+            self.tracking_filter_buttons[key].setText(f"{label} {count}")
+
+    def _set_tracking_filter(self, bucket):
+        self._tracking_filter_bucket = bucket
+        self._filter_tracking_rows()
 
     def _filter_tracking_rows(self, *_args):
         query = self.tracking_search.text().strip().casefold()
-        wanted = {
-            0: "",
-            1: "delivered",
-            2: "transit",
-            3: "attention",
-        }.get(self.tracking_filter.currentIndex(), "")
+        wanted = self._tracking_filter_bucket
         for row in range(self.tracking_table.rowCount()):
             number_item = self.tracking_table.item(row, 0)
             number = number_item.text().casefold() if number_item else ""
@@ -479,6 +556,14 @@ class MainWindow(QMainWindow):
                 row,
                 bool(query and query not in number) or bool(wanted and bucket != wanted),
             )
+
+    def _handle_tracking_cell_click(self, row, column):
+        if column != 5:
+            return
+        item = self.tracking_table.item(row, column)
+        path = item.data(Qt.UserRole) if item else ""
+        if path and Path(path).is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _show_tracking_detail(self, row, _column):
         values = []
@@ -492,8 +577,7 @@ class MainWindow(QMainWindow):
         self.run_button.setEnabled(not running)
         self.tracking_input.setEnabled(not running)
         self.tracking_output.setEnabled(not running)
-        self.mode_pod.setEnabled(not running)
-        self.mode_status.setEnabled(not running)
+        self.pod_switch.setEnabled(not running)
         self.run_button.setText("查询中…" if running else "开始查询")
 
     def _tracking_finished(self, ok, error):
@@ -501,6 +585,12 @@ class MainWindow(QMainWindow):
         if ok:
             self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 100)
             self._show_status("查询完成")
+            output_dir = Path(self.tracking_output.value())
+            self.open_tracking_result.set_path(output_dir / "tracking_result.xlsx")
+            self.open_cleaned_result.set_path(
+                output_dir / "tracking_list_cleaned_sorted.xlsx"
+            )
+            self.open_pod_audit.set_path(output_dir / "pod_audit.xlsx")
         else:
             self._show_status("查询失败")
             QMessageBox.critical(self, "ShipmentTrack", error or "查询失败")
@@ -511,25 +601,22 @@ class MainWindow(QMainWindow):
             return
         inspect_dir = self.inspect_input.value()
         droplist_dir = self.droplist_input.value()
-        output_file = self.excel_output.value()
+        output_dir = self.excel_output.value()
         if not inspect_dir or not Path(inspect_dir).is_dir():
             QMessageBox.warning(self, "ShipmentTrack", "请选择有效的检验表文件夹。")
             return
         if not droplist_dir or not Path(droplist_dir).is_dir():
             QMessageBox.warning(self, "ShipmentTrack", "请选择有效的 Droplist 文件夹。")
             return
-        if not output_file:
-            QMessageBox.warning(self, "ShipmentTrack", "请选择输出 Excel。")
+        if not output_dir:
+            QMessageBox.warning(self, "ShipmentTrack", "请选择输出文件夹。")
             return
-        if not Path(output_file).suffix:
-            output_file += ".xlsx"
-            self.excel_output.set_value(output_file)
 
         settings = dict(self.settings)
         settings.update({
             "inspect_input_dir": inspect_dir,
             "droplist_input_dir": droplist_dir,
-            "excel_output_file": output_file,
+            "excel_output_dir": output_dir,
         })
         self.store.save_settings(settings)
         self.settings = settings
@@ -538,11 +625,13 @@ class MainWindow(QMainWindow):
         self.excel_run_button.setText("处理中…")
         self.excel_table.setRowCount(0)
         self.excel_summary.setText("正在处理")
+        self.open_inspect_output.set_path("")
+        self.open_droplist_output.set_path("")
         self._animate_progress(self.excel_progress, self._excel_progress_anim, self.excel_progress_text, 0)
 
         def task(log, progress, item):
             result = merge_and_reconcile_excel(
-                Path(inspect_dir), Path(droplist_dir), Path(output_file), rules, progress
+                Path(inspect_dir), Path(droplist_dir), Path(output_dir), rules, progress
             )
             item(result)
 
@@ -577,6 +666,8 @@ class MainWindow(QMainWindow):
             f"Droplist {result.droplist_files} 个 / {result.droplist_rows} 行　"
             f"异常文件 {len(result.issues)} 个"
         )
+        self.open_inspect_output.set_path(result.inspect_output_file)
+        self.open_droplist_output.set_path(result.droplist_output_file)
 
     def _excel_finished(self, ok, error):
         self.excel_run_button.setEnabled(True)
@@ -596,7 +687,7 @@ class MainWindow(QMainWindow):
         self.tracking_output.set_value(settings.get("tracking_output_dir", ""))
         self.inspect_input.set_value(settings.get("inspect_input_dir", ""))
         self.droplist_input.set_value(settings.get("droplist_input_dir", ""))
-        self.excel_output.set_value(settings.get("excel_output_file", ""))
+        self.excel_output.set_value(settings.get("excel_output_dir", ""))
 
     def _show_status(self, message):
         self.statusBar().showMessage(str(message), 4000)

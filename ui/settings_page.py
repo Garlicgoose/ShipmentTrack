@@ -4,9 +4,9 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -22,14 +22,6 @@ from PySide6.QtWidgets import (
 from modules.settings_store import FilenameMappingRule
 from ui.components import PathField
 from units import detect_chrome_path
-
-
-MATCH_LABELS = {
-    "包含": "contains",
-    "完全一致": "exact",
-    "正则表达式": "regex",
-}
-MATCH_CODES = {value: key for key, value in MATCH_LABELS.items()}
 
 
 class SettingsPage(QWidget):
@@ -77,7 +69,7 @@ class SettingsPage(QWidget):
         self.tracking_output = PathField(mode="dir")
         self.inspect_input = PathField(mode="dir")
         self.droplist_input = PathField(mode="dir")
-        self.excel_output = PathField(mode="save")
+        self.excel_output = PathField(mode="dir")
         self.chrome_path = PathField(mode="file", file_filter="Chromium (chrome.exe)")
         detect_button = QPushButton("自动检测 Chromium")
         detect_button.setObjectName("smallButton")
@@ -93,21 +85,32 @@ class SettingsPage(QWidget):
         paths_form.addRow("跟踪输出文件夹", self.tracking_output)
         paths_form.addRow("检验表文件夹", self.inspect_input)
         paths_form.addRow("Droplist 文件夹", self.droplist_input)
-        paths_form.addRow("合并输出文件", self.excel_output)
+        paths_form.addRow("合并输出文件夹", self.excel_output)
         paths_form.addRow("Chromium 路径", chrome_widget)
         paths_form.addRow("", self.minimize_browser)
         self.body_layout.addWidget(paths)
 
         mappings = QGroupBox("文件名映射")
         mapping_layout = QVBoxLayout(mappings)
-        hint = QLabel("按从上到下的顺序匹配。修改后由程序写入 filename_mappings.json。")
+        hint = QLabel("关键字对应检验表原类型，再归总到光联或 MPO。保存后自动写入 JSON。")
         hint.setObjectName("muted")
         mapping_layout.addWidget(hint)
         self.mapping_table = QTableWidget(0, 4)
-        self.mapping_table.setHorizontalHeaderLabels(("匹配方式", "文件名关键字", "类型", "备注"))
-        self.mapping_table.horizontalHeader().setStretchLastSection(True)
+        self.mapping_table.setHorizontalHeaderLabels(
+            ("文件名关键字", "检验表类型", "归总类别", "备注")
+        )
+        header = self.mapping_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.mapping_table.verticalHeader().setVisible(False)
+        self.mapping_table.verticalHeader().setDefaultSectionSize(36)
+        self.mapping_table.setShowGrid(False)
         self.mapping_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.mapping_table.setMinimumHeight(190)
+        self.mapping_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.mapping_table.setMinimumHeight(150)
+        self.mapping_table.setMaximumHeight(230)
         mapping_layout.addWidget(self.mapping_table)
         actions = QHBoxLayout()
         for text, handler in (
@@ -145,7 +148,7 @@ class SettingsPage(QWidget):
         self.tracking_output.set_value(self.settings["tracking_output_dir"])
         self.inspect_input.set_value(self.settings["inspect_input_dir"])
         self.droplist_input.set_value(self.settings["droplist_input_dir"])
-        self.excel_output.set_value(self.settings["excel_output_file"])
+        self.excel_output.set_value(self.settings["excel_output_dir"])
         self.chrome_path.set_value(self.settings["chrome_path"])
         self.minimize_browser.setChecked(bool(self.settings["minimize_browser"]))
         self.mapping_table.setRowCount(0)
@@ -154,17 +157,16 @@ class SettingsPage(QWidget):
 
     def add_mapping(self, rule=None):
         if not isinstance(rule, FilenameMappingRule):
-            rule = FilenameMappingRule("", "")
+            rule = FilenameMappingRule("", "", display_type="")
         row = self.mapping_table.rowCount()
         self.mapping_table.insertRow(row)
-        combo = QComboBox()
-        combo.addItems(tuple(MATCH_LABELS))
-        combo.setCurrentText(MATCH_CODES.get(rule.match_type, "包含"))
-        self.mapping_table.setCellWidget(row, 0, combo)
-        self.mapping_table.setItem(row, 1, QTableWidgetItem(rule.pattern))
+        pattern_item = QTableWidgetItem(rule.pattern)
+        pattern_item.setData(256, rule.match_type)
+        self.mapping_table.setItem(row, 0, pattern_item)
+        self.mapping_table.setItem(row, 1, QTableWidgetItem(rule.display_type))
         self.mapping_table.setItem(row, 2, QTableWidgetItem(rule.target_type))
         self.mapping_table.setItem(row, 3, QTableWidgetItem(rule.note))
-        self.mapping_table.setCurrentCell(row, 1)
+        self.mapping_table.setCurrentCell(row, 0)
 
     def remove_mapping(self):
         row = self.mapping_table.currentRow()
@@ -183,23 +185,25 @@ class SettingsPage(QWidget):
         self.mapping_table.setCurrentCell(target, 1)
 
     def _rule_at(self, row):
-        combo = self.mapping_table.cellWidget(row, 0)
         values = []
-        for column in range(1, 4):
+        for column in range(4):
             item = self.mapping_table.item(row, column)
             values.append(item.text().strip() if item else "")
+        pattern_item = self.mapping_table.item(row, 0)
         return FilenameMappingRule(
             pattern=values[0],
-            target_type=values[1],
-            match_type=MATCH_LABELS.get(combo.currentText(), "contains"),
-            note=values[2],
+            target_type=values[2],
+            match_type=(pattern_item.data(256) if pattern_item else "contains") or "contains",
+            note=values[3],
+            display_type=values[1],
         )
 
     def _set_rule(self, row, rule):
-        combo = self.mapping_table.cellWidget(row, 0)
-        combo.setCurrentText(MATCH_CODES.get(rule.match_type, "包含"))
-        for column, value in enumerate((rule.pattern, rule.target_type, rule.note), 1):
+        for column, value in enumerate(
+            (rule.pattern, rule.display_type, rule.target_type, rule.note)
+        ):
             self.mapping_table.setItem(row, column, QTableWidgetItem(value))
+        self.mapping_table.item(row, 0).setData(256, rule.match_type)
 
     def mapping_rules(self):
         return [self._rule_at(row) for row in range(self.mapping_table.rowCount())]
@@ -211,9 +215,23 @@ class SettingsPage(QWidget):
 
     def save(self):
         rules = [rule.normalized() for rule in self.mapping_rules()]
-        rules = [rule for rule in rules if rule.pattern and rule.target_type]
+        rules = [
+            rule for rule in rules
+            if rule.pattern and rule.display_type and rule.target_type
+        ]
         if not rules:
             QMessageBox.warning(self, "ShipmentTrack", "至少保留一条有效的文件名映射。")
+            return
+        invalid_groups = sorted({
+            rule.target_type for rule in rules
+            if rule.target_type not in {"光联", "MPO"}
+        })
+        if invalid_groups:
+            QMessageBox.warning(
+                self,
+                "ShipmentTrack",
+                "归总类别只能填写光联或 MPO：" + "、".join(invalid_groups),
+            )
             return
         settings = dict(self.settings)
         settings.update({
@@ -225,7 +243,7 @@ class SettingsPage(QWidget):
             "tracking_output_dir": self.tracking_output.value(),
             "inspect_input_dir": self.inspect_input.value(),
             "droplist_input_dir": self.droplist_input.value(),
-            "excel_output_file": self.excel_output.value(),
+            "excel_output_dir": self.excel_output.value(),
             "chrome_path": self.chrome_path.value(),
             "minimize_browser": self.minimize_browser.isChecked(),
         })
