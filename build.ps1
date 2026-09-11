@@ -21,6 +21,7 @@ python -m PyInstaller --onefile --console --name GetMachineId `
 
 Write-Host "=== Step 3: copy defaults & readme ==="
 Copy-Item (Join-Path $PSScriptRoot "filename_mappings.json") -Destination $dist -Force
+Copy-Item (Join-Path $PSScriptRoot "delivery_status_mappings.json") -Destination $dist -Force
 Copy-Item (Join-Path $PSScriptRoot "使用说明.txt") -Destination $dist -Force
 
 Write-Host "=== Done ==="

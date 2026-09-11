@@ -12,6 +12,7 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertNotIn("copy chromium", script.casefold())
         self.assertNotIn("chrome-win64\\*", script)
         self.assertIn("外接 Chromium", script)
+        self.assertIn("delivery_status_mappings.json", script)
 
     def test_spec_includes_profile_asset_and_excludes_heavy_optional_modules(self):
         spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
@@ -24,6 +25,10 @@ class PackagingConfigTests(unittest.TestCase):
     def test_default_mapping_file_is_valid(self):
         mappings = json.loads((ROOT / "filename_mappings.json").read_text("utf-8"))
         self.assertEqual(["光联", "MPO"], [item["target_type"] for item in mappings])
+        delivery = json.loads(
+            (ROOT / "delivery_status_mappings.json").read_text("utf-8")
+        )
+        self.assertEqual({"EI": [], "DSV": []}, delivery)
 
     def test_documentation_describes_external_chromium(self):
         readme = (ROOT / "README.md").read_text("utf-8")
@@ -32,6 +37,8 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("Chromium 不在程序目录中", guide)
         self.assertIn("合并检验表.xlsx", readme)
         self.assertIn("归总类别只允许光联或 MPO", readme)
+        self.assertIn("FedEx 不抽查", readme)
+        self.assertIn("delivery_status_mappings.json", readme)
 
     def test_packaged_app_has_offline_smoke_mode(self):
         main_source = (ROOT / "main.py").read_text("utf-8")

@@ -1,4 +1,4 @@
-# ShipmentTrack v0.8
+# ShipmentTrack v0.9
 
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
@@ -24,10 +24,12 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ## 页面
 
 - 跟踪：读取两列 Excel（快递公司、运单号），实时显示状态、抵达时间和备注。
-- POD 抽查：风险件必查，其余成功 POD 随机抽查并输出 `pod_audit.xlsx`。
+- POD 抽查：FedEx 不抽查；其他承运商从已下载 POD 中随机抽取 5%，将查询
+  状态和从 PDF 提取到的状态字段写入 `pod_audit.xlsx`。
 - Excel 合并与核对：输出 `合并检验表.xlsx` 和 `合并Droplist.xlsx`，按日期与
   光联/MPO 归总类别比较数量。检验表明细仍保留澳车、港车、814S 等原类型。
 - 设置：维护 FedEx API、EI 账号、默认路径、外接 Chromium 和文件名映射。
+- 货代状态：可为 EI、DSV 添加额外抵达状态，标准化空格和末尾标点后严格匹配。
 
 界面中的 POD 绿色圆点、查询结果、清洗文件、POD 抽查和两份合并 Excel
 均可直接点击打开。
@@ -53,5 +55,6 @@ main.py / units.py / license.py / machine_id.py / ShipmentTrack.spec
 modules/（跟踪、设置、Excel 合并与核对）
 ui/（PySide6 原生界面） / assets/（图标与本地头像）
 filename_mappings.json（由设置页维护）
+delivery_status_mappings.json（EI/DSV 额外抵达状态）
 requirements.txt（经过打包验证的依赖版本）
 ```
