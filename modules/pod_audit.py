@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""已下载 POD 的风险优先与随机抽查。"""
+"""从非 FedEx 的已下载 POD 中随机抽查 5%。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -28,9 +28,11 @@ class PodAuditItem:
     carrier: str
     pdf_file: str
     sample_reason: str
+    tracking_status: str
     valid_pdf: bool
     tracking_found: bool
     delivered_found: bool
+    status_field: str
     result: str
     details: str
 
@@ -44,6 +46,7 @@ def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
     valid_pdf = False
     tracking_found = False
     delivered_found = False
+    status_field = ""
     details = ""
     try:
         reader = PdfReader(str(path))
@@ -60,7 +63,17 @@ def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
         }
         candidates.discard("")
         tracking_found = any(candidate in normalized for candidate in candidates)
-        delivered_found = any(term in folded for term in DELIVERED_TERMS)
+        for line in text.splitlines():
+            if any(term in line.casefold() for term in DELIVERED_TERMS):
+                status_field = " ".join(line.split())[:300]
+                break
+        delivered_found = bool(status_field) or any(
+            term in folded for term in DELIVERED_TERMS
+        )
+        if delivered_found and not status_field:
+            status_field = next(
+                (term for term in DELIVERED_TERMS if term in folded), ""
+            )
         if not text.strip():
             details = "PDF没有可提取文本，需要人工查看或OCR"
         elif not tracking_found and not delivered_found:
@@ -83,57 +96,42 @@ def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
         carrier=str(carrier),
         pdf_file=str(path),
         sample_reason="",
+        tracking_status="",
         valid_pdf=valid_pdf,
         tracking_found=tracking_found,
         delivered_found=delivered_found,
+        status_field=status_field,
         result=result,
         details=details,
-    )
-
-
-def _is_risk_result(result: dict) -> bool:
-    text = " ".join(
-        str(result.get(key, ""))
-        for key in ("备注", "status", "flag", "error")
-    ).casefold()
-    return bool(
-        result.get("from_cache")
-        or "人工复核" in text
-        or "40" in text
-        or "cache" in text
-        or "缓存" in text
     )
 
 
 def choose_pod_samples(
     results: Iterable[dict],
     sample_rate: float = 0.05,
-    minimum_random: int = 3,
-    maximum_random: int = 20,
     rng: Optional[random.Random] = None,
 ) -> list[tuple[dict, str]]:
     eligible = []
     for result in results:
         pdf_file = str(result.get("POD文件") or result.get("pdf_file") or "").strip()
+        carrier = str(
+            result.get("快递公司") or result.get("carrier") or ""
+        ).strip().casefold()
         status = str(result.get("状态") or result.get("status") or "").strip().casefold()
-        if status not in {"delivered", "completed"} or not pdf_file:
+        delivered = bool(result.get("is_delivered")) or status in {
+            "delivered", "completed"
+        }
+        if carrier == "fedex" or not delivered or not pdf_file:
             continue
         if Path(pdf_file).is_file():
             eligible.append(result)
 
-    risk = [result for result in eligible if _is_risk_result(result)]
-    normal = [result for result in eligible if result not in risk]
-    if not normal:
-        return [(result, "风险必查") for result in risk]
-
-    random_count = max(minimum_random, math.ceil(len(normal) * sample_rate))
-    random_count = min(random_count, maximum_random, len(normal))
+    if not eligible:
+        return []
+    random_count = min(math.ceil(len(eligible) * sample_rate), len(eligible))
     generator = rng or random.SystemRandom()
-    sampled = generator.sample(normal, random_count)
-    return (
-        [(result, "风险必查") for result in risk]
-        + [(result, "随机抽查") for result in sampled]
-    )
+    sampled = generator.sample(eligible, random_count)
+    return [(result, "非FedEx随机抽查5%") for result in sampled]
 
 
 def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
@@ -142,8 +140,8 @@ def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
     sheet.title = "POD抽查"
     sheet.sheet_view.showGridLines = False
     headers = (
-        "运单号", "承运商", "POD文件", "抽查原因", "PDF有效",
-        "运单号匹配", "送达字段匹配", "结果", "说明",
+        "运单号", "承运商", "POD文件", "抽查原因", "查询状态", "PDF有效",
+        "运单号匹配", "提取状态", "送达字段匹配", "结果", "说明",
     )
     sheet.append(headers)
     for item in items:
@@ -152,8 +150,10 @@ def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
             item.carrier,
             item.pdf_file,
             item.sample_reason,
+            item.tracking_status,
             "是" if item.valid_pdf else "否",
             "是" if item.tracking_found else "否",
+            item.status_field,
             "是" if item.delivered_found else "否",
             item.result,
             item.details,
@@ -163,7 +163,7 @@ def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
         cell.fill = header_fill
         cell.font = Font(color="FFFFFF", bold=True)
         cell.alignment = Alignment(horizontal="center", vertical="center")
-    widths = (18, 12, 42, 12, 10, 12, 14, 12, 44)
+    widths = (18, 12, 42, 20, 24, 10, 12, 36, 14, 12, 44)
     for index, width in enumerate(widths, 1):
         sheet.column_dimensions[chr(64 + index)].width = width
     sheet.freeze_panes = "A2"
@@ -191,9 +191,13 @@ def audit_pod_sample(
             carrier=checked.carrier,
             pdf_file=checked.pdf_file,
             sample_reason=reason,
+            tracking_status=str(
+                result.get("状态") or result.get("status") or ""
+            ),
             valid_pdf=checked.valid_pdf,
             tracking_found=checked.tracking_found,
             delivered_found=checked.delivered_found,
+            status_field=checked.status_field,
             result=checked.result,
             details=checked.details,
         ))

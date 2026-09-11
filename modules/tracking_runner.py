@@ -164,6 +164,7 @@ def run_tracking(
                     "POD抽查": "",
                     "备注": remark,
                     "from_cache": bool(raw_result.get("from_cache")),
+                    "is_delivered": delivered,
                 }
                 results.append(result_item)
                 result(dict(result_item))

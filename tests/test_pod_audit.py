@@ -36,6 +36,7 @@ class PodAuditTests(unittest.TestCase):
         self.assertEqual("通过", item.result)
         self.assertTrue(item.tracking_found)
         self.assertTrue(item.delivered_found)
+        self.assertIn("Delivered", item.status_field)
 
         with mock.patch("modules.pod_audit.PdfReader", return_value=FakeReader(
             "Tracking number 123456. Status: In transit"
@@ -44,23 +45,26 @@ class PodAuditTests(unittest.TestCase):
         self.assertEqual("人工复核", item.result)
         self.assertFalse(item.delivered_found)
 
-    def test_risk_shipments_are_always_selected_plus_random_minimum(self):
+    def test_only_non_fedex_pods_are_sampled_at_five_percent(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             results = []
-            for index in range(10):
+            for index in range(50):
                 pdf = root / f"{index}.pdf"
                 pdf.write_bytes(b"%PDF-test")
                 results.append({
                     "运单号": str(index),
-                    "快递公司": "FedEx",
+                    "快递公司": "FedEx" if index < 10 else (
+                        "DHL" if index % 2 else "DSV"
+                    ),
                     "状态": "Delivered",
                     "POD文件": str(pdf),
-                    "备注": "人工复核：40条" if index == 0 else "",
+                    "备注": "",
                 })
             selected = choose_pod_samples(results, rng=random.Random(7))
-        self.assertIn((results[0], "风险必查"), selected)
-        self.assertEqual(4, len(selected))
+        self.assertEqual(2, len(selected))
+        self.assertTrue(all(item[0]["快递公司"] != "FedEx" for item in selected))
+        self.assertTrue(all(item[1] == "非FedEx随机抽查5%" for item in selected))
 
     def test_audit_writes_traceable_workbook(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -77,17 +81,28 @@ class PodAuditTests(unittest.TestCase):
 
             def fake_inspector(pdf_file, tracking_number, carrier):
                 return PodAuditItem(
-                    tracking_number, carrier, str(pdf_file), "", True, True, True,
-                    "通过", "",
+                    tracking_number=tracking_number,
+                    carrier=carrier,
+                    pdf_file=str(pdf_file),
+                    sample_reason="",
+                    tracking_status="",
+                    valid_pdf=True,
+                    tracking_found=True,
+                    delivered_found=True,
+                    status_field="Status: Delivered",
+                    result="通过",
+                    details="",
                 )
 
             output = root / "pod_audit.xlsx"
             items = audit_pod_sample([result], output, inspector=fake_inspector)
             workbook = load_workbook(output, data_only=True)
         self.assertEqual(1, len(items))
-        self.assertEqual("风险必查", items[0].sample_reason)
+        self.assertEqual("非FedEx随机抽查5%", items[0].sample_reason)
         self.assertEqual("POD抽查", workbook.active.title)
-        self.assertEqual("通过", workbook.active["H2"].value)
+        self.assertEqual("Delivered", workbook.active["E2"].value)
+        self.assertEqual("Status: Delivered", workbook.active["H2"].value)
+        self.assertEqual("通过", workbook.active["J2"].value)
 
 
 if __name__ == "__main__":
