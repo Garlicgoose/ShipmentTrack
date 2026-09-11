@@ -87,6 +87,12 @@ class SettingsStoreTests(unittest.TestCase):
             self.store.load_delivery_statuses(),
         )
 
+    def test_custom_store_paths_keep_status_mapping_in_same_directory(self):
+        self.assertEqual(
+            self.store.settings_path.parent / "delivery_status_mappings.json",
+            self.store.delivery_statuses_path,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

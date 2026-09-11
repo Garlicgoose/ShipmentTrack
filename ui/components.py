@@ -110,6 +110,40 @@ class ToggleSwitch(QAbstractButton):
         painter.end()
 
 
+class CircularProgress(QWidget):
+    """只显示比例的环形进度，不绘制数字。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._ratio = 0.0
+        self.setFixedSize(74, 74)
+
+    @property
+    def ratio(self):
+        return self._ratio
+
+    def set_progress(self, completed, total):
+        ratio = float(completed) / float(total) if total else 0.0
+        self._ratio = max(0.0, min(1.0, ratio))
+        self.update()
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        bounds = QRectF(7, 7, self.width() - 14, self.height() - 14)
+        pen = painter.pen()
+        pen.setWidth(8)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setColor(QColor("#DFE8ED"))
+        painter.setPen(pen)
+        painter.drawArc(bounds, 0, 360 * 16)
+        if self._ratio > 0:
+            pen.setColor(QColor("#0B8F87"))
+            painter.setPen(pen)
+            painter.drawArc(bounds, 90 * 16, -int(self._ratio * 360 * 16))
+        painter.end()
+
+
 class ClickableFrame(QFrame):
     clicked = Signal()
 

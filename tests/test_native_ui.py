@@ -7,7 +7,13 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QLabel, QTableWidgetItem, QFrame
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QLabel,
+    QScrollArea,
+    QTableWidgetItem,
+)
 
 from modules.settings_store import SettingsStore
 from ui.main_window import MainWindow, PROFILE_AVATAR, PROFILE_NAME
@@ -48,6 +54,13 @@ class NativeUiTests(unittest.TestCase):
             if label.text()
         ]
         self.assertEqual([PROFILE_NAME], popup_labels)
+        sidebar_profile_text = [
+            label.text() for label in self.window.profile_button.findChildren(QLabel)
+            if label.text()
+        ]
+        self.assertEqual([], sidebar_profile_text)
+        self.assertEqual([], self.window.settings_page.findChildren(QScrollArea))
+        self.assertEqual(2, self.window.settings_page.settings_tabs.count())
 
     def test_tracking_page_has_smooth_progress_and_live_table(self):
         self.assertEqual(240, self.window._tracking_progress_anim.duration())
@@ -68,8 +81,8 @@ class NativeUiTests(unittest.TestCase):
             "备注": "需要人工复核",
         })
         self.assertEqual(2, self.window.tracking_table.rowCount())
-        self.assertEqual("1", self.window.tracking_stats["delivered"].value_label.text())
-        self.assertEqual("1", self.window.tracking_stats["attention"].value_label.text())
+        self.assertEqual(0.5, self.window.delivery_ring.ratio)
+        self.assertEqual(1, self.window._tracking_counts["attention"])
         self.window._set_tracking_filter("delivered")
         self.assertFalse(self.window.tracking_table.isRowHidden(0))
         self.assertTrue(self.window.tracking_table.isRowHidden(1))
@@ -101,6 +114,7 @@ class NativeUiTests(unittest.TestCase):
         page.mapping_table.setItem(row, 1, QTableWidgetItem("澳车"))
         page.mapping_table.setItem(row, 2, QTableWidgetItem("光联"))
         page.mapping_table.setItem(row, 3, QTableWidgetItem("历史名称"))
+        page.add_delivery_status("EI", "交给其他清关人")
         page.save()
         rules = self.store.load_mappings()
         self.assertTrue(any(rule.pattern == "OFS" for rule in rules))
@@ -110,6 +124,10 @@ class NativeUiTests(unittest.TestCase):
         self.assertTrue(self.store.mappings_path.is_file())
         self.assertIsNone(page.mapping_table.cellWidget(0, 0))
         self.assertLessEqual(page.mapping_table.maximumHeight(), 230)
+        self.assertEqual(
+            ["交给其他清关人"],
+            self.store.load_delivery_statuses()["EI"],
+        )
 
     def test_excel_page_is_single_combined_workflow(self):
         self.assertEqual(6, self.window.excel_table.columnCount())

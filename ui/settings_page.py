@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QScrollArea,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -38,12 +38,13 @@ class SettingsPage(QWidget):
     def _build(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        body = QWidget()
-        self.body_layout = QVBoxLayout(body)
-        self.body_layout.setContentsMargins(0, 0, 8, 12)
-        self.body_layout.setSpacing(14)
+        outer.setSpacing(10)
+        self.settings_tabs = QTabWidget()
+
+        general_page = QWidget()
+        general_layout = QHBoxLayout(general_page)
+        general_layout.setContentsMargins(4, 10, 4, 4)
+        general_layout.setSpacing(12)
 
         credentials = QGroupBox("账号与 API")
         credentials_form = QFormLayout(credentials)
@@ -59,7 +60,7 @@ class SettingsPage(QWidget):
         credentials_form.addRow("FedEx API Secret", self.fedex_secret)
         credentials_form.addRow("EI 账号", self.ei_email)
         credentials_form.addRow("EI 密码", self.ei_password)
-        self.body_layout.addWidget(credentials)
+        general_layout.addWidget(credentials, 2)
 
         paths = QGroupBox("文件与 Chromium")
         paths_form = QFormLayout(paths)
@@ -88,7 +89,13 @@ class SettingsPage(QWidget):
         paths_form.addRow("合并输出文件夹", self.excel_output)
         paths_form.addRow("Chromium 路径", chrome_widget)
         paths_form.addRow("", self.minimize_browser)
-        self.body_layout.addWidget(paths)
+        general_layout.addWidget(paths, 3)
+        self.settings_tabs.addTab(general_page, "连接与路径")
+
+        mapping_page = QWidget()
+        mapping_page_layout = QVBoxLayout(mapping_page)
+        mapping_page_layout.setContentsMargins(4, 10, 4, 4)
+        mapping_page_layout.setSpacing(10)
 
         mappings = QGroupBox("文件名映射")
         mapping_layout = QVBoxLayout(mappings)
@@ -109,7 +116,7 @@ class SettingsPage(QWidget):
         self.mapping_table.setShowGrid(False)
         self.mapping_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.mapping_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.mapping_table.setMinimumHeight(150)
+        self.mapping_table.setMinimumHeight(170)
         self.mapping_table.setMaximumHeight(230)
         mapping_layout.addWidget(self.mapping_table)
         actions = QHBoxLayout()
@@ -125,7 +132,44 @@ class SettingsPage(QWidget):
             actions.addWidget(button)
         actions.addStretch(1)
         mapping_layout.addLayout(actions)
-        self.body_layout.addWidget(mappings)
+        mapping_page_layout.addWidget(mappings)
+
+        statuses = QGroupBox("货代抵达状态")
+        status_layout = QVBoxLayout(statuses)
+        status_hint = QLabel(
+            "为 EI 或 DSV 添加额外抵达状态。清理空格和末尾标点后按完整字段匹配。"
+        )
+        status_hint.setObjectName("muted")
+        status_layout.addWidget(status_hint)
+        self.status_table = QTableWidget(0, 2)
+        self.status_table.setHorizontalHeaderLabels(("承运商", "额外抵达状态"))
+        self.status_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeToContents
+        )
+        self.status_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.status_table.verticalHeader().setVisible(False)
+        self.status_table.verticalHeader().setDefaultSectionSize(34)
+        self.status_table.setShowGrid(False)
+        self.status_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.status_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.status_table.setMinimumHeight(112)
+        self.status_table.setMaximumHeight(160)
+        status_layout.addWidget(self.status_table)
+        status_actions = QHBoxLayout()
+        add_status = QPushButton("添加状态")
+        add_status.setObjectName("smallButton")
+        add_status.clicked.connect(self.add_delivery_status)
+        remove_status = QPushButton("删除状态")
+        remove_status.setObjectName("smallButton")
+        remove_status.clicked.connect(self.remove_delivery_status)
+        status_actions.addWidget(add_status)
+        status_actions.addWidget(remove_status)
+        status_actions.addStretch(1)
+        status_layout.addLayout(status_actions)
+        mapping_page_layout.addWidget(statuses)
+        mapping_page_layout.addStretch(1)
+        self.settings_tabs.addTab(mapping_page, "映射")
+        outer.addWidget(self.settings_tabs, 1)
 
         save_row = QHBoxLayout()
         save_row.addStretch(1)
@@ -133,10 +177,7 @@ class SettingsPage(QWidget):
         save_button.setObjectName("primaryButton")
         save_button.clicked.connect(self.save)
         save_row.addWidget(save_button)
-        self.body_layout.addLayout(save_row)
-        self.body_layout.addStretch(1)
-        scroll.setWidget(body)
-        outer.addWidget(scroll)
+        outer.addLayout(save_row)
 
     def load_values(self):
         self.settings = self.store.load_settings()
@@ -154,6 +195,10 @@ class SettingsPage(QWidget):
         self.mapping_table.setRowCount(0)
         for rule in self.store.load_mappings():
             self.add_mapping(rule)
+        self.status_table.setRowCount(0)
+        for carrier, values in self.store.load_delivery_statuses().items():
+            for value in values:
+                self.add_delivery_status(carrier, value)
 
     def add_mapping(self, rule=None):
         if not isinstance(rule, FilenameMappingRule):
@@ -208,6 +253,37 @@ class SettingsPage(QWidget):
     def mapping_rules(self):
         return [self._rule_at(row) for row in range(self.mapping_table.rowCount())]
 
+    def add_delivery_status(self, carrier="EI", status=""):
+        if isinstance(carrier, bool):
+            carrier = "EI"
+        row = self.status_table.rowCount()
+        self.status_table.insertRow(row)
+        self.status_table.setItem(row, 0, QTableWidgetItem(str(carrier)))
+        self.status_table.setItem(row, 1, QTableWidgetItem(str(status)))
+        self.status_table.setCurrentCell(row, 1)
+
+    def remove_delivery_status(self):
+        row = self.status_table.currentRow()
+        if row >= 0:
+            self.status_table.removeRow(row)
+
+    def delivery_status_mapping(self):
+        mapping = {"EI": [], "DSV": []}
+        invalid = []
+        for row in range(self.status_table.rowCount()):
+            carrier_item = self.status_table.item(row, 0)
+            status_item = self.status_table.item(row, 1)
+            carrier = (carrier_item.text() if carrier_item else "").strip().upper()
+            status = (status_item.text() if status_item else "").strip()
+            if not carrier and not status:
+                continue
+            if carrier not in mapping:
+                invalid.append(carrier or "空白")
+                continue
+            if status and status not in mapping[carrier]:
+                mapping[carrier].append(status)
+        return mapping, invalid
+
     def detect_chromium(self):
         path = detect_chrome_path()
         self.chrome_path.set_value(path)
@@ -233,6 +309,14 @@ class SettingsPage(QWidget):
                 "归总类别只能填写光联或 MPO：" + "、".join(invalid_groups),
             )
             return
+        delivery_statuses, invalid_carriers = self.delivery_status_mapping()
+        if invalid_carriers:
+            QMessageBox.warning(
+                self,
+                "ShipmentTrack",
+                "货代承运商只能填写 EI 或 DSV：" + "、".join(invalid_carriers),
+            )
+            return
         settings = dict(self.settings)
         settings.update({
             "fedex_api_key": self.fedex_key.text().strip(),
@@ -249,6 +333,7 @@ class SettingsPage(QWidget):
         })
         self.store.save_settings(settings)
         self.store.save_mappings(rules)
+        self.store.save_delivery_statuses(delivery_statuses)
         self.settings = settings
         self.saved.emit(dict(settings))
         self.message.emit("设置已保存")

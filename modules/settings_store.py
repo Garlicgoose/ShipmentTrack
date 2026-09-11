@@ -191,7 +191,8 @@ class SettingsStore:
         self.settings_path = Path(settings_path or base / "settings.json")
         self.mappings_path = Path(mappings_path or base / "filename_mappings.json")
         self.delivery_statuses_path = Path(
-            delivery_statuses_path or base / "delivery_status_mappings.json"
+            delivery_statuses_path
+            or self.settings_path.parent / "delivery_status_mappings.json"
         )
 
     def load_settings(self) -> dict:

@@ -137,6 +137,18 @@ QHeaderView::section {
 QPlainTextEdit { padding: 7px; color: #506577; font-family: Consolas, "Microsoft YaHei UI"; }
 QPlainTextEdit#trackingLog { background: #F8FAFB; border-color: #E1E8ED; }
 
+QTabWidget::pane { border: none; background: transparent; top: -1px; }
+QTabBar::tab {
+    min-height: 34px;
+    padding: 0 18px;
+    color: #687B8C;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+}
+QTabBar::tab:hover { color: #173F5F; }
+QTabBar::tab:selected { color: #087A74; border-bottom-color: #0B8F87; font-weight: 700; }
+
 QFrame#profileButton { border-radius: 8px; background: transparent; }
 QFrame#profileButton:hover { background: #183B57; }
 QDialog#profilePopup { background: white; border: 1px solid #D7E2EA; border-radius: 12px; }

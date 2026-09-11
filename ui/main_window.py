@@ -29,10 +29,10 @@ from modules.excel_reconcile import merge_and_reconcile_excel
 from modules.settings_store import SettingsStore
 from ui.components import (
     ClickableFrame,
+    CircularProgress,
     OpenFileButton,
     PathField,
     ProfilePopup,
-    StatCard,
     ToggleSwitch,
     circular_pixmap,
     position_popup,
@@ -139,17 +139,8 @@ class MainWindow(QMainWindow):
         avatar.setObjectName("profileAvatar")
         avatar.setPixmap(circular_pixmap(PROFILE_AVATAR, 36))
         avatar.setFixedSize(36, 36)
-        profile_text = QVBoxLayout()
-        profile_text.setSpacing(0)
-        profile_name = QLabel(PROFILE_NAME)
-        profile_name.setObjectName("profileName")
-        profile_caption = QLabel("作者")
-        profile_caption.setObjectName("profileCaption")
-        profile_text.addWidget(profile_name)
-        profile_text.addWidget(profile_caption)
+        profile.addStretch(1)
         profile.addWidget(avatar)
-        profile.addSpacing(3)
-        profile.addLayout(profile_text)
         profile.addStretch(1)
         self.profile_popup = ProfilePopup(PROFILE_AVATAR, PROFILE_NAME, self)
         self.profile_button.clicked.connect(
@@ -164,17 +155,46 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
 
-        stats = QHBoxLayout()
-        stats.setSpacing(12)
-        self.tracking_stats = {
-            "total": StatCard("本批运单"),
-            "delivered": StatCard("已送达"),
-            "transit": StatCard("运输中"),
-            "attention": StatCard("需要关注"),
-        }
-        for card in self.tracking_stats.values():
-            stats.addWidget(card, 1)
-        layout.addLayout(stats)
+        overview = QFrame()
+        overview.setObjectName("card")
+        overview_layout = QHBoxLayout(overview)
+        overview_layout.setContentsMargins(20, 13, 20, 13)
+        overview_layout.setSpacing(16)
+        self.delivery_ring = CircularProgress()
+        overview_layout.addWidget(self.delivery_ring)
+        ring_text = QVBoxLayout()
+        ring_text.setSpacing(3)
+        ring_title = QLabel("送达进度")
+        ring_title.setObjectName("sectionTitle")
+        ring_note = QLabel("绿色圆环表示当前已送达比例")
+        ring_note.setObjectName("muted")
+        ring_text.addWidget(ring_title)
+        ring_text.addWidget(ring_note)
+        overview_layout.addLayout(ring_text)
+        overview_layout.addSpacing(16)
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setStyleSheet("color:#DDE6ED;")
+        overview_layout.addWidget(separator)
+        current = QVBoxLayout()
+        current.setSpacing(3)
+        current_title = QLabel("当前处理")
+        current_title.setObjectName("muted")
+        self.current_task_label = QLabel("等待开始")
+        self.current_task_label.setObjectName("sectionTitle")
+        current.addWidget(current_title)
+        current.addWidget(self.current_task_label)
+        overview_layout.addLayout(current, 1)
+        mode = QVBoxLayout()
+        mode.setSpacing(3)
+        mode_title = QLabel("查询范围")
+        mode_title.setObjectName("muted")
+        self.current_mode_label = QLabel("FedEx · DHL · UPS · EI · DSV")
+        self.current_mode_label.setObjectName("sectionTitle")
+        mode.addWidget(mode_title)
+        mode.addWidget(self.current_mode_label)
+        overview_layout.addLayout(mode, 2)
+        layout.addWidget(overview)
 
         query_card = QFrame()
         query_card.setObjectName("card")
@@ -443,10 +463,14 @@ class MainWindow(QMainWindow):
             button.set_path("")
         self._tracking_counts = {"total": 0, "delivered": 0, "transit": 0, "attention": 0}
         self._update_tracking_stats()
+        self.current_task_label.setText(
+            "准备查询 · POD" if self.pod_switch.isChecked() else "准备查询 · 仅状态"
+        )
         self._set_tracking_running(True)
         self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 0)
 
         run_settings = dict(settings)
+        delivery_statuses = self.store.load_delivery_statuses()
 
         def task(log, progress, item):
             from modules.tracking_runner import run_tracking
@@ -465,6 +489,7 @@ class MainWindow(QMainWindow):
                 log=log,
                 progress=progress,
                 result=item,
+                delivery_statuses=delivery_statuses,
             )
 
         self._tracking_worker = TaskWorker(task, self)
@@ -518,6 +543,9 @@ class MainWindow(QMainWindow):
             "attention": QColor("#FFF4DD"),
         }[bucket]
         self._tracking_counts[bucket] += 1
+        self.current_task_label.setText(
+            f"{result.get('快递公司', '')} · {result.get('状态', '')}"
+        )
         self.tracking_table.item(row, 0).setData(Qt.UserRole, bucket)
         self.tracking_table.item(row, 2).setForeground(color)
         self.tracking_table.item(row, 2).setBackground(status_background)
@@ -530,8 +558,10 @@ class MainWindow(QMainWindow):
         self.tracking_table.scrollToBottom()
 
     def _update_tracking_stats(self):
-        for key, card in self.tracking_stats.items():
-            card.set_value(self._tracking_counts[key])
+        self.delivery_ring.set_progress(
+            self._tracking_counts["delivered"],
+            self._tracking_counts["total"],
+        )
         labels = {
             "": ("全部", self._tracking_counts["total"]),
             "delivered": ("已送达", self._tracking_counts["delivered"]),
@@ -585,6 +615,7 @@ class MainWindow(QMainWindow):
         if ok:
             self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 100)
             self._show_status("查询完成")
+            self.current_task_label.setText("查询完成")
             output_dir = Path(self.tracking_output.value())
             self.open_tracking_result.set_path(output_dir / "tracking_result.xlsx")
             self.open_cleaned_result.set_path(
@@ -593,6 +624,7 @@ class MainWindow(QMainWindow):
             self.open_pod_audit.set_path(output_dir / "pod_audit.xlsx")
         else:
             self._show_status("查询失败")
+            self.current_task_label.setText("查询失败")
             QMessageBox.critical(self, "ShipmentTrack", error or "查询失败")
         self._tracking_worker = None
 
