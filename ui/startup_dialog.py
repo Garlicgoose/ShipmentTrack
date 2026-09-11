@@ -8,10 +8,10 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QProgressBar,
                                QMessageBox)
 
-from units import get_base_path
+from units import get_resource_path
 from ui.workers import TaskWorker
 
-APP_ICON = str(get_base_path() / "assets" / "app_icon.png")
+APP_ICON = str(get_resource_path() / "assets" / "app_icon.png")
 
 
 class StartupDialog(QDialog):

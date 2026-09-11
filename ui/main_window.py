@@ -33,11 +33,11 @@ from ui.components import PathField, StatCard, circular_pixmap
 from ui.settings_page import SettingsPage
 from ui.styles import APP_STYLE
 from ui.workers import TaskWorker
-from units import detect_chrome_path, get_base_path
+from units import detect_chrome_path, get_resource_path
 
 
-APP_ICON = str(get_base_path() / "assets" / "app_icon.png")
-PROFILE_AVATAR = str(get_base_path() / "assets" / "github_avatar.jpg")
+APP_ICON = str(get_resource_path() / "assets" / "app_icon.png")
+PROFILE_AVATAR = str(get_resource_path() / "assets" / "github_avatar.jpg")
 PROFILE_NAME = "Garlicgoose"
 
 

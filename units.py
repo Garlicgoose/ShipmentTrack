@@ -14,6 +14,14 @@ def get_base_path() -> Path:
     return Path(__file__).resolve().parent
 
 
+def get_resource_path() -> Path:
+    """只读资源根目录：开发时为项目目录，PyInstaller 后为 _MEIPASS。"""
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if getattr(sys, "frozen", False) and frozen_root:
+        return Path(frozen_root).resolve()
+    return Path(__file__).resolve().parent
+
+
 def read_json(file_path, default=None):
     try:
         with open(file_path, "r", encoding="utf-8") as f:

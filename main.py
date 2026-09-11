@@ -70,6 +70,10 @@ def main():
                 "modules.fedex_module",
             ):
                 importlib.import_module(module_name)
+            from ui.main_window import PROFILE_AVATAR
+            for resource in (APP_ICON, PROFILE_AVATAR):
+                if not Path(resource).is_file():
+                    raise FileNotFoundError(f"Packaged resource missing: {resource}")
             window = MainWindow()
             window.show()
             QTimer.singleShot(100, window.close)
