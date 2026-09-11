@@ -1,0 +1,14 @@
+[
+  {
+    "pattern": "光联",
+    "target_type": "光联",
+    "match_type": "contains",
+    "note": ""
+  },
+  {
+    "pattern": "MPO",
+    "target_type": "MPO",
+    "match_type": "contains",
+    "note": ""
+  }
+]

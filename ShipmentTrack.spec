@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec: Shipment Track（onedir，不打包 Chromium）。
+"""PyInstaller spec: ShipmentTrack（onedir，Chromium 作为外接依赖）。
 
-Chromium 浏览器单独放在 exe 同级的 chrome/ 目录（见 build.ps1 的复制步骤），
-程序设置里的「模拟 Chrome 路径」会优先自动检测该目录。
+Playwright 驱动仍需随程序发布，但 Chromium 浏览器本体不进入产物。
+程序通过自动检测或设置页手动选择外部 chrome.exe。
 """
-from PyInstaller.utils.hooks import collect_all
+from pathlib import Path
 
 datas = [
     ("assets/app_icon.ico", "assets"),
@@ -18,13 +18,9 @@ hiddenimports = [
     "modules.dsv_module",
     "modules.ei_module",
     "modules.ups_module",
+    "modules.fedex_module",
+    "modules.excel_reconcile",
 ]
-
-# Playwright：收集整个包（含 driver/node.exe 与 JS 文件）
-pw_datas, pw_binaries, pw_hidden = collect_all("playwright")
-datas += pw_datas
-binaries += pw_binaries
-hiddenimports += pw_hidden
 
 a = Analysis(
     ["main.py"],
@@ -34,9 +30,36 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib"],
+    # 这些均为 openpyxl/requests/PySide6 的可选依赖，本程序不使用。
+    excludes=[
+        "tkinter",
+        "matplotlib",
+        "pandas",
+        "numpy",
+        "scipy",
+        "pyarrow",
+        "PIL",
+        "qtpy",
+        "cryptography",
+        "OpenSSL",
+        "PySide6.QtCharts",
+        "PySide6.QtDataVisualization",
+        "PySide6.QtMultimedia",
+        "PySide6.QtQml",
+        "PySide6.QtQuick",
+        "PySide6.QtWebEngineCore",
+        "PySide6.QtWebEngineWidgets",
+    ],
     noarchive=False,
 )
+
+# 某些构建环境的 PATH 中含 Poppler 自带 ICU。PyInstaller 会误收集它，
+# 覆盖 Windows 系统 ICU，导致 PySide6.QtWidgets 报 DLL load failed。
+_foreign_icu = {"icuuc.dll", "icudt78.dll"}
+a.binaries = [
+    entry for entry in a.binaries
+    if Path(entry[0]).name.casefold() not in _foreign_icu
+]
 
 pyz = PYZ(a.pure)
 

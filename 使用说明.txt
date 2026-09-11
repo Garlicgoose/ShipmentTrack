@@ -1,4 +1,4 @@
-# Shipment Track v0.6
+# ShipmentTrack v0.7
 
 快递批量查询工具（DHL / DSV / EI / UPS / FedEx），Garlicgoose 制作。
 
@@ -10,34 +10,43 @@
 - 已送达货件自动下载 POD（PDF）到 `输出文件夹\pdf\对应快递`
 - 输出结果 Excel：运单号 / 快递公司 / **状态** / 抵达时间 / 用时(秒) / 备注
   - 「状态」列是读取到的原始状态（如 Delivered / In Transit），用于排查问题
-  - FedEx 有多个子单时：子单全部送达才算送达；子单超过 39 个只查主单，
-    备注列标注「子单超过39，需人工核查」
+  - FedEx 返回 2–39 个关联单时：全部送达才算送达
+  - FedEx 返回达到 40 个关联单时：当前 40 个全部送达则暂定送达，
+    备注列标注需要人工复核
 - 勾选「只查状态」时只查状态，不下载任何 PDF
+- 合并检验表与 Droplist，并按日期、类型核对数量
+- 对下载成功的 POD 执行风险优先和随机抽查，结果保存为 pod_audit.xlsx
 
 ## 使用方法
 
 1. 双击 `Shipment Track.exe` 启动（首次启动会自动检查授权，通过后进入主界面）
-2. 点「设置」：
+2. 打开「设置」：
    - 输入 Excel（快递公司+运单号两列）
    - 输出文件夹
    - EI 邮箱 / 密码（EI 运单需要）
    - FedEx API Key / Secret（developer.fedex.com 注册获取）
-   - Chrome：模拟浏览器路径，默认自动检测本文件夹 `chrome\` 下的浏览器，
-     一般不用改；如报找不到浏览器，点「自动检测」或手动指向 chrome.exe
+   - Chromium：模拟浏览器路径。点击「自动检测 Chromium」，或手动指向
+     外接 Chromium 的 chrome.exe
    - 勾选「最小化」：浏览器弹出后自动最小化（后台运行，不挡视线）
-3. 点「开始查询」，输出面板显示进度：`[1/100] DHL 4561879 Delivered`
-4. 完成后提示输出 Excel 位置
+   - 文件名映射：在表格中添加关键字、匹配方式、类型和备注，保存后自动
+     写入 filename_mappings.json，无需手工编辑 JSON
+3. 在「跟踪」页面选择输入 Excel 和输出文件夹，点击「开始查询」
+4. 在「Excel 合并与核对」页面同时选择检验表文件夹、Droplist 文件夹和
+   输出文件，点击「开始合并与核对」
 
 ## 目录说明
 
 ```
 Shipment Track\
 ├── Shipment Track.exe    主程序
-├── chrome\               Playwright Chromium 浏览器（必须保留，不能删）
 ├── GetMachineId.exe      查看本机机器码（用于授权）
+├── filename_mappings.json 文件名映射（设置页自动维护）
 ├── data\                 授权缓存等（自动生成）
 └── 使用说明.txt          本文件
 ```
+
+Chromium 不在程序目录中。请单独准备 Chromium，并在设置页自动检测或手动
+选择 chrome.exe。
 
 ## 授权说明（给使用者）
 
@@ -53,5 +62,5 @@ Shipment Track\
 - **FedEx 查询报错**：确认设置里的 API Key/Secret 正确
 - **浏览器没弹出来**：设置了「最小化」，任务栏能看到；取消勾选设置中的
   「最小化」即可正常显示
-- **同事电脑没有 Python / 库**：不需要，exe 已内置全部运行库；
-  只要整个文件夹（含 chrome\）一起拷贝即可运行
+- **同事电脑没有 Python / 库**：不需要，exe 已内置程序运行库；Chromium
+  需要单独准备并在设置页指定路径
