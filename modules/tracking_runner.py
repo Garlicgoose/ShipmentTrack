@@ -17,6 +17,7 @@ from modules.tracking_utils import (
     TrackingCarrierSession,
 )
 from modules import fedex_module
+from modules.pod_audit import audit_pod_sample
 
 
 def _is_delivered_truthy(value):
@@ -157,7 +158,10 @@ def run_tracking(
                     "状态": status,
                     "抵达时间": arrival_time,
                     "用时(秒)": elapsed_seconds,
+                    "POD文件": raw_result.get("pdf_file", "") or "",
+                    "POD抽查": "",
                     "备注": remark,
+                    "from_cache": bool(raw_result.get("from_cache")),
                 }
                 results.append(result_item)
                 result(dict(result_item))
@@ -172,6 +176,8 @@ def run_tracking(
                     "状态": "Error",
                     "抵达时间": "",
                     "用时(秒)": elapsed_seconds,
+                    "POD文件": "",
+                    "POD抽查": "",
                     "备注": str(e),
                 }
                 results.append(result_item)
@@ -194,6 +200,17 @@ def run_tracking(
             except Exception:
                 pass
         fedex_module.close_shared_session()
+
+    if save_pdf:
+        audit_file = output_path / "pod_audit.xlsx"
+        audit_items = audit_pod_sample(results, audit_file)
+        audit_by_tracking = {
+            item.tracking_number: item.result for item in audit_items
+        }
+        for item in results:
+            item["POD抽查"] = audit_by_tracking.get(str(item["运单号"]), "")
+        if audit_items:
+            log(f"POD抽查完成：{len(audit_items)} 份，结果：{audit_file}")
 
     output_file = output_path / "tracking_result.xlsx"
     result_book = Workbook()

@@ -245,19 +245,19 @@ class MainWindow(QMainWindow):
         filter_row.addWidget(self.tracking_search)
         filter_row.addWidget(self.tracking_filter)
         results_layout.addLayout(filter_row)
-        self.tracking_table = QTableWidget(0, 6)
+        self.tracking_table = QTableWidget(0, 7)
         self.tracking_table.setObjectName("trackingTable")
         self.tracking_table.setHorizontalHeaderLabels(
-            ("运单号", "承运商", "状态", "抵达时间", "用时(秒)", "备注")
+            ("运单号", "承运商", "状态", "抵达时间", "用时(秒)", "POD", "备注")
         )
         self.tracking_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tracking_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tracking_table.setAlternatingRowColors(True)
         self.tracking_table.cellDoubleClicked.connect(self._show_tracking_detail)
         header = self.tracking_table.horizontalHeader()
-        for column in range(5):
+        for column in range(6):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.Stretch)
+        header.setSectionResizeMode(6, QHeaderView.Stretch)
         results_layout.addWidget(self.tracking_table, 1)
         self.tracking_log = QPlainTextEdit()
         self.tracking_log.setObjectName("trackingLog")
@@ -434,6 +434,7 @@ class MainWindow(QMainWindow):
             result.get("状态", ""),
             result.get("抵达时间", ""),
             result.get("用时(秒)", ""),
+            Path(result.get("POD文件", "")).name if result.get("POD文件") else "未下载",
             result.get("备注", ""),
         ]
         for column, value in enumerate(values):
@@ -481,7 +482,7 @@ class MainWindow(QMainWindow):
 
     def _show_tracking_detail(self, row, _column):
         values = []
-        headers = ("运单号", "承运商", "状态", "抵达时间", "用时(秒)", "备注")
+        headers = ("运单号", "承运商", "状态", "抵达时间", "用时(秒)", "POD", "备注")
         for column, header in enumerate(headers):
             item = self.tracking_table.item(row, column)
             values.append(f"{header}：{item.text() if item else ''}")

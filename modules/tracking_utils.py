@@ -15,7 +15,10 @@ from openpyxl import load_workbook
 TRACKING_COMPANY_COL_INDEX = 0
 TRACKING_NUMBER_COL_INDEX = 1
 
-TRACKING_OUTPUT_COLUMNS = ["运单号", "快递公司", "状态", "抵达时间", "用时(秒)", "备注"]
+TRACKING_OUTPUT_COLUMNS = [
+    "运单号", "快递公司", "状态", "抵达时间", "用时(秒)",
+    "POD文件", "POD抽查", "备注",
+]
 
 # FedEx 关联运单上限：API 最多只返回 40 条（含主单自身）
 FEDEX_RELATED_LIMIT = 40
