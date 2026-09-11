@@ -43,6 +43,10 @@ class PackagingConfigTests(unittest.TestCase):
             self.assertRegex(requirements, rf"(?mi)^{package}==")
         self.assertNotRegex(requirements, r"(?mi)^pandas(?:==|>=)")
 
+    def test_runtime_status_cache_is_not_committed(self):
+        ignore = (ROOT / ".gitignore").read_text("utf-8")
+        self.assertIn("modules/fedex_status_cache.json", ignore)
+
 
 if __name__ == "__main__":
     unittest.main()
