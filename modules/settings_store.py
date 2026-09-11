@@ -18,6 +18,7 @@ DEFAULT_SETTINGS = {
     "tracking_output_dir": "",
     "inspect_input_dir": "",
     "droplist_input_dir": "",
+    "excel_output_dir": "",
     "excel_output_file": "",
     "tracking_ei_email": "",
     "tracking_ei_password": "",
@@ -35,6 +36,7 @@ class FilenameMappingRule:
     target_type: str
     match_type: str = "contains"
     note: str = ""
+    display_type: str = ""
 
     def normalized(self) -> "FilenameMappingRule":
         match_type = (self.match_type or "contains").strip().lower()
@@ -45,12 +47,13 @@ class FilenameMappingRule:
             target_type=str(self.target_type or "").strip(),
             match_type=match_type,
             note=str(self.note or "").strip(),
+            display_type=str(self.display_type or self.pattern or "").strip(),
         )
 
 
 DEFAULT_FILENAME_MAPPINGS = [
-    FilenameMappingRule(pattern="光联", target_type="光联"),
-    FilenameMappingRule(pattern="MPO", target_type="MPO"),
+    FilenameMappingRule(pattern="光联", target_type="光联", display_type="光联"),
+    FilenameMappingRule(pattern="MPO", target_type="MPO", display_type="MPO"),
 ]
 
 SECRET_FIELDS = {"fedex_api_secret", "tracking_ei_password"}
@@ -133,6 +136,7 @@ def unprotect_secret(value: str) -> str:
 @dataclass(frozen=True)
 class MappingMatch:
     target_type: str
+    display_type: str
     note: str
     pattern: str
     matched: bool
@@ -160,12 +164,14 @@ class FilenameMapper:
             if matched:
                 return MappingMatch(
                     target_type=rule.target_type,
+                    display_type=rule.display_type,
                     note=rule.note,
                     pattern=rule.pattern,
                     matched=True,
                 )
         return MappingMatch(
             target_type="未识别",
+            display_type="未识别",
             note="没有匹配的文件名规则",
             pattern="",
             matched=False,
@@ -187,6 +193,8 @@ class SettingsStore:
         data = read_json(self.settings_path, default={})
         if isinstance(data, dict):
             result.update({key: data[key] for key in DEFAULT_SETTINGS if key in data})
+        if not result["excel_output_dir"] and result["excel_output_file"]:
+            result["excel_output_dir"] = str(Path(result["excel_output_file"]).parent)
         for key in SECRET_FIELDS:
             result[key] = unprotect_secret(result.get(key, ""))
         return result
@@ -213,6 +221,11 @@ class SettingsStore:
                 target_type=item.get("target_type", ""),
                 match_type=item.get("match_type", "contains"),
                 note=item.get("note", ""),
+                display_type=(
+                    item.get("display_type")
+                    or item.get("source_type")
+                    or item.get("pattern", "")
+                ),
             ).normalized()
             if rule.pattern and rule.target_type:
                 rules.append(rule)

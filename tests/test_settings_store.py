@@ -44,8 +44,8 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(["光联", "MPO"], [rule.target_type for rule in defaults])
 
         rules = [
-            FilenameMappingRule("OFS", "光联", "contains", "历史名称"),
-            FilenameMappingRule(r"^MPO_\d+", "MPO", "regex"),
+            FilenameMappingRule("澳车", "光联", "contains", "", "澳车"),
+            FilenameMappingRule(r"^814S", "MPO", "regex", "", "814S"),
         ]
         self.store.save_mappings(rules)
         self.assertEqual(rules, self.store.load_mappings())
@@ -58,6 +58,7 @@ class SettingsStoreTests(unittest.TestCase):
         match = mapper.match("9.10 SPECIAL mpo.xlsx")
         self.assertTrue(match.matched)
         self.assertEqual("光联", match.target_type)
+        self.assertEqual("special", match.display_type)
         self.assertEqual("special", match.pattern)
 
     def test_invalid_regex_and_unmatched_filename_are_visible(self):

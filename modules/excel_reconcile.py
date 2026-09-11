@@ -32,7 +32,8 @@ class ReconcileRow:
 
 @dataclass(frozen=True)
 class ExcelReconcileResult:
-    output_file: Path
+    inspect_output_file: Path
+    droplist_output_file: Path
     inspect_files: int
     droplist_files: int
     inspect_rows: int
@@ -167,12 +168,23 @@ def _copy_merged_ranges(source_sheet, target_sheet, row_map, max_column):
 
 
 def _append_metadata_headers(sheet, row, start_column):
-    for offset, value in enumerate(("类型", "日期", "来源文件", "映射备注")):
+    for offset, value in enumerate(
+        ("类型", "归总类别", "日期", "来源文件", "映射备注")
+    ):
         sheet.cell(row=row, column=start_column + offset, value=value)
 
 
-def _append_metadata(sheet, row, start_column, target_type, date, source, note):
-    values = (target_type, date, source, note)
+def _append_metadata(
+    sheet,
+    row,
+    start_column,
+    display_type,
+    target_type,
+    date,
+    source,
+    note,
+):
+    values = (display_type, target_type, date, source, note)
     for offset, value in enumerate(values):
         sheet.cell(row=row, column=start_column + offset, value=value)
 
@@ -240,6 +252,9 @@ def _merge_inspect(
             )
 
         match = mapper.match(file.name)
+        comparison_type = (
+            match.target_type if match.target_type in {"光联", "MPO"} else "未识别"
+        )
         _, date_label = _resolve_date(file)
         if not match.matched:
             issues.append(("检验表", file.name, match.note))
@@ -261,12 +276,13 @@ def _merge_inspect(
                     output_sheet,
                     target_row,
                     fixed_columns + 1,
-                    match.target_type,
+                    match.display_type,
+                    comparison_type,
                     date_label,
                     file.name,
                     match.note,
                 )
-                totals[(date_label, match.target_type)] += _quantity(
+                totals[(date_label, comparison_type)] += _quantity(
                     _safe_value(source, source_row, 6)
                 )
             target_row += 1
@@ -307,6 +323,9 @@ def _merge_droplist(
             continue
 
         match = mapper.match(file.name)
+        comparison_type = (
+            match.target_type if match.target_type in {"光联", "MPO"} else "未识别"
+        )
         _, date_label = _resolve_date(file)
         if not match.matched:
             issues.append(("Droplist", file.name, match.note))
@@ -347,12 +366,13 @@ def _merge_droplist(
                     output_sheet,
                     target_row,
                     fixed_columns + 1,
-                    match.target_type,
+                    comparison_type,
+                    comparison_type,
                     date_label,
                     file.name,
                     match.note,
                 )
-                totals[(date_label, match.target_type)] += _quantity(
+                totals[(date_label, comparison_type)] += _quantity(
                     _safe_value(source, source_row, 6)
                 )
                 target_row += 1
@@ -427,29 +447,31 @@ def _style_output(workbook) -> None:
 def merge_and_reconcile_excel(
     inspect_folder: Path,
     droplist_folder: Path,
-    output_file: Path,
+    output_dir: Path,
     mapping_rules: Iterable[FilenameMappingRule],
     progress_callback: ProgressCallback = None,
 ) -> ExcelReconcileResult:
     inspect_folder = Path(inspect_folder)
     droplist_folder = Path(droplist_folder)
-    output_file = Path(output_file)
+    output_dir = Path(output_dir)
     if not inspect_folder.is_dir():
         raise NotADirectoryError(f"检验表文件夹不存在：{inspect_folder}")
     if not droplist_folder.is_dir():
         raise NotADirectoryError(f"Droplist 文件夹不存在：{droplist_folder}")
 
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    excluded = {output_file.resolve()}
+    output_dir.mkdir(parents=True, exist_ok=True)
+    inspect_output_file = output_dir / "合并检验表.xlsx"
+    droplist_output_file = output_dir / "合并Droplist.xlsx"
+    excluded = {inspect_output_file.resolve(), droplist_output_file.resolve()}
     mapper = FilenameMapper(mapping_rules)
     issues: list[tuple[str, str, str]] = []
 
-    workbook = Workbook()
-    summary_sheet = workbook.active
-    summary_sheet.title = "核对汇总"
-    inspect_sheet = workbook.create_sheet("合并检验表")
-    droplist_sheet = workbook.create_sheet("合并Droplist")
-    issue_sheet = workbook.create_sheet("异常文件")
+    inspect_workbook = Workbook()
+    inspect_sheet = inspect_workbook.active
+    inspect_sheet.title = "合并检验表"
+    droplist_workbook = Workbook()
+    droplist_sheet = droplist_workbook.active
+    droplist_sheet.title = "合并Droplist"
 
     inspect_totals, inspect_files, inspect_rows = _merge_inspect(
         inspect_folder, inspect_sheet, mapper, excluded, issues
@@ -463,6 +485,7 @@ def merge_and_reconcile_excel(
         progress_callback(80)
 
     rows = _build_reconcile_rows(inspect_totals, droplist_totals)
+    summary_sheet = inspect_workbook.create_sheet("核对汇总")
     summary_sheet.append(("日期", "类型", "检验表数量", "Droplist数量", "差异", "结果"))
     for row in rows:
         summary_sheet.append(
@@ -476,17 +499,20 @@ def merge_and_reconcile_excel(
             )
         )
 
+    issue_sheet = inspect_workbook.create_sheet("异常文件")
     issue_sheet.append(("来源", "文件", "问题"))
     for issue in issues:
         issue_sheet.append(issue)
 
-    _style_output(workbook)
-    workbook.save(output_file)
+    _style_output(inspect_workbook)
+    inspect_workbook.save(inspect_output_file)
+    droplist_workbook.save(droplist_output_file)
     if progress_callback:
         progress_callback(100)
 
     return ExcelReconcileResult(
-        output_file=output_file,
+        inspect_output_file=inspect_output_file,
+        droplist_output_file=droplist_output_file,
         inspect_files=inspect_files,
         droplist_files=droplist_files,
         inspect_rows=inspect_rows,

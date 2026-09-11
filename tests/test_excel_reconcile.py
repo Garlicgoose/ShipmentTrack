@@ -47,8 +47,10 @@ class ExcelReconcileTests(unittest.TestCase):
         self.inspect.mkdir()
         self.droplist.mkdir()
         self.rules = [
-            FilenameMappingRule("光联", "光联", note="光联业务"),
-            FilenameMappingRule("MPO", "MPO"),
+            FilenameMappingRule("澳车", "光联", note="光联业务", display_type="澳车"),
+            FilenameMappingRule("814S", "MPO", display_type="814S"),
+            FilenameMappingRule("光联", "光联", display_type="光联"),
+            FilenameMappingRule("MPO", "MPO", display_type="MPO"),
         ]
 
     def tearDown(self):
@@ -63,13 +65,13 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual(((0, 0, 0), ""), extract_date_from_name("unknown.xlsx"))
 
     def test_merge_and_reconcile_outputs_traceable_sheets(self):
-        create_inspect(self.inspect / "9.10 光联.xlsx", [10, 20])
-        create_inspect(self.inspect / "9.10 MPO.xlsx", [5])
+        create_inspect(self.inspect / "9.10 澳车.xlsx", [10, 20])
+        create_inspect(self.inspect / "9.10 814S.xlsx", [5])
         day = self.droplist / "9.10"
         day.mkdir()
         create_droplist(day / "Drop shipment list9.10光联.xlsx", [30])
         create_droplist(day / "Drop shipment list9.10MPO.xlsx", [4])
-        output = self.root / "合并与核对.xlsx"
+        output = self.root / "output"
         progress = []
 
         result = merge_and_reconcile_excel(
@@ -91,15 +93,20 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual(1, by_type["MPO"].difference)
         self.assertEqual([45, 80, 100], progress)
 
-        workbook = load_workbook(output, data_only=False)
+        self.assertEqual(output / "合并检验表.xlsx", result.inspect_output_file)
+        self.assertEqual(output / "合并Droplist.xlsx", result.droplist_output_file)
+        self.assertTrue(result.droplist_output_file.is_file())
+        workbook = load_workbook(result.inspect_output_file, data_only=False)
         self.assertEqual(
-            ["核对汇总", "合并检验表", "合并Droplist", "异常文件"],
+            ["合并检验表", "核对汇总", "异常文件"],
             workbook.sheetnames,
         )
         self.assertEqual("类型", workbook["合并检验表"][1][7].value)
+        self.assertEqual("归总类别", workbook["合并检验表"][1][8].value)
         inspect_rows = list(workbook["合并检验表"].iter_rows(min_row=2, values_only=True))
-        guanglian = next(row for row in inspect_rows if row[7] == "光联")
-        self.assertEqual("光联业务", guanglian[10])
+        guanglian = next(row for row in inspect_rows if row[7] == "澳车")
+        self.assertEqual("光联", guanglian[8])
+        self.assertEqual("光联业务", guanglian[11])
         self.assertFalse(workbook["核对汇总"].sheet_view.showGridLines)
 
         merged_sheet = workbook["合并检验表"]
@@ -116,7 +123,7 @@ class ExcelReconcileTests(unittest.TestCase):
             self.droplist / "Drop shipment list9.11MPO.xlsx",
             [7],
         )
-        output = self.inspect / "合并与核对.xlsx"
+        output = self.inspect
         result = merge_and_reconcile_excel(
             self.inspect,
             self.droplist,
