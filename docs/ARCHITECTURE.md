@@ -46,7 +46,8 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 ## Excel 输出
 
 - 跟踪：`tracking_result.xlsx`、`tracking_list_cleaned_sorted.xlsx`、可选 `pod_audit.xlsx`。
-- 合并：`合并检验表.xlsx` 和 `合并Droplist.xlsx`。
+- 合并：检验表与 Droplist 支持同时或单侧运行；`合并检验表.xlsx` 包含按原类型
+  汇总箱数的 `类型箱数` Sheet，Droplist 单侧运行时汇总页写入 Droplist 文件。
 - Droplist 明细页按业务表头识别，跳过首个汇总页、Address、Sheet1 和空表。
 - 检验表详细类型不会被光联/MPO 覆盖；光联/MPO 只用于核对汇总。
 

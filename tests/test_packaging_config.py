@@ -52,6 +52,9 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("默认 `Sheet1` 和空表不计入合并数量", readme)
         self.assertIn("delivery_status_mappings.json", readme)
         self.assertIn("data/settings.json", readme)
+        self.assertIn("可任选一侧单独合并", readme)
+        self.assertIn("`类型箱数` Sheet", readme)
+        self.assertIn("至少一个文件夹", guide)
         self.assertNotIn("GetMachineId.exe", readme)
         self.assertNotIn("GetMachineId.exe", guide)
 
