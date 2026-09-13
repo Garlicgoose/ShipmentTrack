@@ -24,16 +24,16 @@ ProgressCallback = Optional[Callable[[int], None]]
 class ReconcileRow:
     date: str
     target_type: str
-    inspect_quantity: float
-    droplist_quantity: float
-    difference: float
+    inspect_quantity: Optional[float]
+    droplist_quantity: Optional[float]
+    difference: Optional[float]
     result: str
 
 
 @dataclass(frozen=True)
 class ExcelReconcileResult:
-    inspect_output_file: Path
-    droplist_output_file: Path
+    inspect_output_file: Optional[Path]
+    droplist_output_file: Optional[Path]
     inspect_files: int
     droplist_files: int
     inspect_rows: int
@@ -447,17 +447,26 @@ def _date_sort_key(label: str):
     return extract_date_from_name(label)[0]
 
 
-def _build_reconcile_rows(inspect_totals, droplist_totals) -> tuple[ReconcileRow, ...]:
+def _build_reconcile_rows(
+    inspect_totals,
+    droplist_totals,
+    inspect_enabled: bool = True,
+    droplist_enabled: bool = True,
+) -> tuple[ReconcileRow, ...]:
     rows = []
     keys = sorted(
         set(inspect_totals) | set(droplist_totals),
         key=lambda item: (_date_sort_key(item[0]), item[1]),
     )
     for date, target_type in keys:
-        inspect = inspect_totals.get((date, target_type), 0.0)
-        droplist = droplist_totals.get((date, target_type), 0.0)
-        difference = inspect - droplist
-        if (date, target_type) not in inspect_totals:
+        inspect = inspect_totals.get((date, target_type))
+        droplist = droplist_totals.get((date, target_type))
+        difference = inspect - droplist if inspect is not None and droplist is not None else None
+        if not inspect_enabled:
+            result = "仅 Droplist 统计"
+        elif not droplist_enabled:
+            result = "仅检验表统计"
+        elif (date, target_type) not in inspect_totals:
             result = "检验表缺少数据"
         elif (date, target_type) not in droplist_totals:
             result = "Droplist 缺少数据"
@@ -473,11 +482,10 @@ def _style_output(workbook) -> None:
     dark_fill = PatternFill("solid", fgColor="173F5F")
     light_fill = PatternFill("solid", fgColor="EAF2F7")
     # 合并明细页保留源文件格式；只格式化本程序新建的汇总和异常页。
-    for sheet in (
-        workbook["类型箱数"],
-        workbook["核对汇总"],
-        workbook["异常文件"],
-    ):
+    for sheet_name in ("类型箱数", "核对汇总", "异常文件"):
+        if sheet_name not in workbook.sheetnames:
+            continue
+        sheet = workbook[sheet_name]
         sheet.sheet_view.showGridLines = False
         sheet.freeze_panes = "A2" if sheet.max_row > 1 else None
         for cell in sheet[1]:
@@ -490,6 +498,8 @@ def _style_output(workbook) -> None:
             width = min(max(max((len(value) for value in values), default=8) + 2, 10), 36)
             sheet.column_dimensions[column_cells[0].column_letter].width = width
 
+    if "核对汇总" not in workbook.sheetnames:
+        return
     summary = workbook["核对汇总"]
     for row in range(2, summary.max_row + 1):
         summary.cell(row, 3).number_format = "#,##0.##"
@@ -506,55 +516,71 @@ def _style_output(workbook) -> None:
 
 
 def merge_and_reconcile_excel(
-    inspect_folder: Path,
-    droplist_folder: Path,
+    inspect_folder: Optional[Path],
+    droplist_folder: Optional[Path],
     output_dir: Path,
     mapping_rules: Iterable[FilenameMappingRule],
     progress_callback: ProgressCallback = None,
 ) -> ExcelReconcileResult:
-    inspect_folder = Path(inspect_folder)
-    droplist_folder = Path(droplist_folder)
+    inspect_folder = Path(inspect_folder) if inspect_folder else None
+    droplist_folder = Path(droplist_folder) if droplist_folder else None
     output_dir = Path(output_dir)
-    if not inspect_folder.is_dir():
+    if inspect_folder is None and droplist_folder is None:
+        raise ValueError("检验表文件夹和 Droplist 文件夹至少选择一个")
+    if inspect_folder is not None and not inspect_folder.is_dir():
         raise NotADirectoryError(f"检验表文件夹不存在：{inspect_folder}")
-    if not droplist_folder.is_dir():
+    if droplist_folder is not None and not droplist_folder.is_dir():
         raise NotADirectoryError(f"Droplist 文件夹不存在：{droplist_folder}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    inspect_output_file = output_dir / "合并检验表.xlsx"
-    droplist_output_file = output_dir / "合并Droplist.xlsx"
-    excluded = {inspect_output_file.resolve(), droplist_output_file.resolve()}
+    inspect_output_file = output_dir / "合并检验表.xlsx" if inspect_folder else None
+    droplist_output_file = output_dir / "合并Droplist.xlsx" if droplist_folder else None
+    excluded = {
+        path.resolve()
+        for path in (inspect_output_file, droplist_output_file)
+        if path is not None
+    }
     mapper = FilenameMapper(mapping_rules)
     issues: list[tuple[str, str, str]] = []
 
-    inspect_workbook = Workbook()
-    inspect_sheet = inspect_workbook.active
-    inspect_sheet.title = "合并检验表"
-    droplist_workbook = Workbook()
-    droplist_sheet = droplist_workbook.active
-    droplist_sheet.title = "合并Droplist"
-
-    inspect_totals, display_totals, inspect_files, inspect_rows = _merge_inspect(
-        inspect_folder, inspect_sheet, mapper, excluded, issues
-    )
+    inspect_workbook = Workbook() if inspect_folder else None
+    droplist_workbook = Workbook() if droplist_folder else None
+    inspect_totals, display_totals, inspect_files, inspect_rows = {}, {}, 0, 0
+    droplist_totals, droplist_files, droplist_rows = {}, 0, 0
+    if inspect_workbook is not None:
+        inspect_sheet = inspect_workbook.active
+        inspect_sheet.title = "合并检验表"
+        inspect_totals, display_totals, inspect_files, inspect_rows = _merge_inspect(
+            inspect_folder, inspect_sheet, mapper, excluded, issues
+        )
     if progress_callback:
         progress_callback(45)
-    droplist_totals, droplist_files, droplist_rows = _merge_droplist(
-        droplist_folder, droplist_sheet, mapper, excluded, issues
-    )
+    if droplist_workbook is not None:
+        droplist_sheet = droplist_workbook.active
+        droplist_sheet.title = "合并Droplist"
+        droplist_totals, droplist_files, droplist_rows = _merge_droplist(
+            droplist_folder, droplist_sheet, mapper, excluded, issues
+        )
     if progress_callback:
         progress_callback(80)
 
-    rows = _build_reconcile_rows(inspect_totals, droplist_totals)
-    type_sheet = inspect_workbook.create_sheet("类型箱数")
-    type_sheet.append(("日期", "类型", "箱数", "归总类别"))
-    for (date, display_type, target_type), quantity in sorted(
-        display_totals.items(),
-        key=lambda item: (_date_sort_key(item[0][0]), item[0][1], item[0][2]),
-    ):
-        type_sheet.append((date, display_type, quantity, target_type))
+    rows = _build_reconcile_rows(
+        inspect_totals,
+        droplist_totals,
+        inspect_enabled=inspect_folder is not None,
+        droplist_enabled=droplist_folder is not None,
+    )
+    if inspect_workbook is not None:
+        type_sheet = inspect_workbook.create_sheet("类型箱数")
+        type_sheet.append(("日期", "类型", "箱数", "归总类别"))
+        for (date, display_type, target_type), quantity in sorted(
+            display_totals.items(),
+            key=lambda item: (_date_sort_key(item[0][0]), item[0][1], item[0][2]),
+        ):
+            type_sheet.append((date, display_type, quantity, target_type))
 
-    summary_sheet = inspect_workbook.create_sheet("核对汇总")
+    summary_workbook = inspect_workbook or droplist_workbook
+    summary_sheet = summary_workbook.create_sheet("核对汇总")
     summary_sheet.append(("日期", "类型", "检验表数量", "Droplist数量", "差异", "结果"))
     for row in rows:
         summary_sheet.append(
@@ -568,14 +594,16 @@ def merge_and_reconcile_excel(
             )
         )
 
-    issue_sheet = inspect_workbook.create_sheet("异常文件")
+    issue_sheet = summary_workbook.create_sheet("异常文件")
     issue_sheet.append(("来源", "文件", "问题"))
     for issue in issues:
         issue_sheet.append(issue)
 
-    _style_output(inspect_workbook)
-    inspect_workbook.save(inspect_output_file)
-    droplist_workbook.save(droplist_output_file)
+    _style_output(summary_workbook)
+    if inspect_workbook is not None:
+        inspect_workbook.save(inspect_output_file)
+    if droplist_workbook is not None:
+        droplist_workbook.save(droplist_output_file)
     if progress_callback:
         progress_callback(100)
 

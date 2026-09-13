@@ -220,6 +220,43 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual("一致", mpo.result)
         self.assertTrue(any("empty" in issue[1] for issue in result.issues))
 
+    def test_inspect_and_droplist_can_run_independently(self):
+        create_inspect(self.inspect / "9.10 澳车.xlsx", [10])
+        inspect_result = merge_and_reconcile_excel(
+            self.inspect,
+            None,
+            self.root / "inspect-output",
+            self.rules,
+        )
+        self.assertTrue(inspect_result.inspect_output_file.is_file())
+        self.assertIsNone(inspect_result.droplist_output_file)
+        self.assertEqual(10, inspect_result.rows[0].inspect_quantity)
+        self.assertIsNone(inspect_result.rows[0].droplist_quantity)
+        self.assertIsNone(inspect_result.rows[0].difference)
+        self.assertEqual("仅检验表统计", inspect_result.rows[0].result)
+
+        create_droplist(
+            self.droplist / "Drop shipment list9.10MPO.xlsx",
+            [6],
+        )
+        droplist_result = merge_and_reconcile_excel(
+            None,
+            self.droplist,
+            self.root / "droplist-output",
+            self.rules,
+        )
+        self.assertIsNone(droplist_result.inspect_output_file)
+        self.assertTrue(droplist_result.droplist_output_file.is_file())
+        self.assertIsNone(droplist_result.rows[0].inspect_quantity)
+        self.assertEqual(6, droplist_result.rows[0].droplist_quantity)
+        self.assertEqual("仅 Droplist 统计", droplist_result.rows[0].result)
+        workbook = load_workbook(droplist_result.droplist_output_file)
+        self.assertEqual(["合并Droplist", "核对汇总", "异常文件"], workbook.sheetnames)
+
+    def test_merge_requires_at_least_one_input_folder(self):
+        with self.assertRaisesRegex(ValueError, "至少选择一个"):
+            merge_and_reconcile_excel(None, None, self.root / "output", self.rules)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -213,6 +213,33 @@ class NativeUiTests(unittest.TestCase):
         self.assertTrue(self.window.open_inspect_output.isEnabled())
         self.assertTrue(self.window.open_droplist_output.isEnabled())
 
+    def test_excel_result_supports_inspection_only(self):
+        inspect_output = Path(self.temp_dir.name) / "合并检验表.xlsx"
+        inspect_output.write_bytes(b"xlsx")
+        result = SimpleNamespace(
+            rows=(SimpleNamespace(
+                date="9.10",
+                target_type="光联",
+                inspect_quantity=12,
+                droplist_quantity=None,
+                difference=None,
+                result="仅检验表统计",
+            ),),
+            inspect_files=1,
+            droplist_files=0,
+            inspect_rows=2,
+            droplist_rows=0,
+            issues=(),
+            inspect_output_file=inspect_output,
+            droplist_output_file=None,
+        )
+        self.window._show_excel_result(result)
+        self.assertEqual("12", self.window.excel_table.item(0, 2).text())
+        self.assertEqual("", self.window.excel_table.item(0, 3).text())
+        self.assertEqual("", self.window.excel_table.item(0, 4).text())
+        self.assertTrue(self.window.open_inspect_output.isEnabled())
+        self.assertFalse(self.window.open_droplist_output.isEnabled())
+
     def test_parallel_panels_keep_their_own_controls_and_output_paths(self):
         tracking_output = Path(self.temp_dir.name) / "tracking_result.xlsx"
         cleaned_output = Path(self.temp_dir.name) / "tracking_list_cleaned_sorted.xlsx"

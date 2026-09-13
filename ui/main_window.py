@@ -785,11 +785,14 @@ class MainWindow(QMainWindow):
         inspect_dir = self.inspect_input.value()
         droplist_dir = self.droplist_input.value()
         output_dir = self.excel_output.value()
-        if not inspect_dir or not Path(inspect_dir).is_dir():
+        if inspect_dir and not Path(inspect_dir).is_dir():
             QMessageBox.warning(self, "ShipmentTrack", "请选择有效的检验表文件夹。")
             return
-        if not droplist_dir or not Path(droplist_dir).is_dir():
+        if droplist_dir and not Path(droplist_dir).is_dir():
             QMessageBox.warning(self, "ShipmentTrack", "请选择有效的 Droplist 文件夹。")
+            return
+        if not inspect_dir and not droplist_dir:
+            QMessageBox.warning(self, "ShipmentTrack", "检验表和 Droplist 至少选择一个文件夹。")
             return
         if not output_dir:
             QMessageBox.warning(self, "ShipmentTrack", "请选择输出文件夹。")
@@ -815,7 +818,11 @@ class MainWindow(QMainWindow):
 
         def task(log, progress, item):
             result = merge_and_reconcile_excel(
-                Path(inspect_dir), Path(droplist_dir), Path(output_dir), rules, progress
+                Path(inspect_dir) if inspect_dir else None,
+                Path(droplist_dir) if droplist_dir else None,
+                Path(output_dir),
+                rules,
+                progress,
             )
             item(result)
 
@@ -835,9 +842,9 @@ class MainWindow(QMainWindow):
             values = (
                 row_data.date,
                 row_data.target_type,
-                f"{row_data.inspect_quantity:g}",
-                f"{row_data.droplist_quantity:g}",
-                f"{row_data.difference:g}",
+                "" if row_data.inspect_quantity is None else f"{row_data.inspect_quantity:g}",
+                "" if row_data.droplist_quantity is None else f"{row_data.droplist_quantity:g}",
+                "" if row_data.difference is None else f"{row_data.difference:g}",
                 row_data.result,
             )
             for column, value in enumerate(values):
@@ -850,10 +857,11 @@ class MainWindow(QMainWindow):
             f"Droplist {result.droplist_files} 个 / {result.droplist_rows} 行　"
             f"异常文件 {len(result.issues)} 个"
         )
-        self._excel_output_paths = {
-            "inspect": result.inspect_output_file,
-            "droplist": result.droplist_output_file,
-        }
+        self._excel_output_paths = {}
+        if result.inspect_output_file:
+            self._excel_output_paths["inspect"] = result.inspect_output_file
+        if result.droplist_output_file:
+            self._excel_output_paths["droplist"] = result.droplist_output_file
         self._refresh_output_buttons(1)
 
     def _excel_finished(self, ok, error):
