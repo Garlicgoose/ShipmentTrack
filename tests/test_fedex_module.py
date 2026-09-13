@@ -23,6 +23,10 @@ def piece(number, code="DL", description="Delivered", delivered_at=""):
 
 
 class FedexBusinessRulesTests(unittest.TestCase):
+    def test_default_status_cache_is_in_data_folder(self):
+        self.assertEqual("data", fedex.STATUS_CACHE_FILE.parent.name)
+        self.assertEqual("fedex_status_cache.json", fedex.STATUS_CACHE_FILE.name)
+
     def query_live(self, associated, main=None, save_pdf=True):
         main = main or piece("MASTER")
         session = mock.Mock()

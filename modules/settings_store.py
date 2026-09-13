@@ -10,7 +10,7 @@ import re
 import sys
 from typing import Iterable, Optional
 
-from units import get_base_path, read_json, write_json
+from units import get_base_path, get_data_path, read_json, write_json
 
 
 DEFAULT_SETTINGS = {
@@ -210,16 +210,39 @@ class SettingsStore:
         delivery_statuses_path: Optional[Path] = None,
     ):
         base = get_base_path()
-        self.settings_path = Path(settings_path or base / "settings.json")
-        self.mappings_path = Path(mappings_path or base / "filename_mappings.json")
+        use_default_data_dir = settings_path is None and mappings_path is None
+        data_dir = get_data_path()
+        self.settings_path = Path(settings_path or data_dir / "settings.json")
+        self.mappings_path = Path(
+            mappings_path or self.settings_path.parent / "filename_mappings.json"
+        )
         self.delivery_statuses_path = Path(
             delivery_statuses_path
             or self.settings_path.parent / "delivery_status_mappings.json"
         )
+        self._legacy_settings_path = base / "settings.json" if use_default_data_dir else None
+        self._legacy_mappings_path = base / "filename_mappings.json" if use_default_data_dir else None
+        self._legacy_delivery_statuses_path = (
+            base / "delivery_status_mappings.json" if use_default_data_dir else None
+        )
+
+    @staticmethod
+    def _load_with_legacy(path: Path, legacy_path: Optional[Path], default):
+        data = read_json(path, default=None)
+        if data is not None:
+            return data
+        if legacy_path and legacy_path.is_file():
+            data = read_json(legacy_path, default=None)
+            if data is not None:
+                write_json(path, data)
+                return data
+        return default
 
     def load_settings(self) -> dict:
         result = dict(DEFAULT_SETTINGS)
-        data = read_json(self.settings_path, default={})
+        data = self._load_with_legacy(
+            self.settings_path, self._legacy_settings_path, {}
+        )
         if isinstance(data, dict):
             result.update({key: data[key] for key in DEFAULT_SETTINGS if key in data})
         if not result["excel_output_dir"] and result["excel_output_file"]:
@@ -238,7 +261,9 @@ class SettingsStore:
         write_json(self.settings_path, safe)
 
     def load_mappings(self) -> list[FilenameMappingRule]:
-        data = read_json(self.mappings_path, default=None)
+        data = self._load_with_legacy(
+            self.mappings_path, self._legacy_mappings_path, None
+        )
         if not isinstance(data, list):
             return list(DEFAULT_FILENAME_MAPPINGS)
         rules = []
@@ -266,7 +291,11 @@ class SettingsStore:
         write_json(self.mappings_path, [asdict(rule) for rule in valid])
 
     def load_delivery_statuses(self) -> dict[str, list[str]]:
-        data = read_json(self.delivery_statuses_path, default={})
+        data = self._load_with_legacy(
+            self.delivery_statuses_path,
+            self._legacy_delivery_statuses_path,
+            {},
+        )
         result = {carrier: [] for carrier in DELIVERY_STATUS_CARRIERS}
         if not isinstance(data, dict):
             return result

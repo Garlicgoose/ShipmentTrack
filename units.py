@@ -22,6 +22,11 @@ def get_resource_path() -> Path:
     return Path(__file__).resolve().parent
 
 
+def get_data_path() -> Path:
+    """统一运行数据目录：始终位于程序根目录下的 data。"""
+    return get_base_path() / "data"
+
+
 def read_json(file_path, default=None):
     try:
         with open(file_path, "r", encoding="utf-8") as f:

@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from modules.settings_store import (
     FilenameMapper,
@@ -98,6 +99,33 @@ class SettingsStoreTests(unittest.TestCase):
             self.store.settings_path.parent / "delivery_status_mappings.json",
             self.store.delivery_statuses_path,
         )
+
+    def test_default_store_uses_data_folder_and_migrates_legacy_json(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "settings.json").write_text(
+                json.dumps({"tracking_output_dir": "D:/legacy"}),
+                encoding="utf-8",
+            )
+            (root / "filename_mappings.json").write_text(
+                json.dumps([{"pattern": "旧规则", "target_type": "MPO"}]),
+                encoding="utf-8",
+            )
+            (root / "delivery_status_mappings.json").write_text(
+                json.dumps({"EI": ["Legacy status"], "DSV": []}),
+                encoding="utf-8",
+            )
+            with mock.patch("modules.settings_store.get_base_path", return_value=root), \
+                 mock.patch("modules.settings_store.get_data_path", return_value=root / "data"):
+                store = SettingsStore()
+                self.assertEqual("D:/legacy", store.load_settings()["tracking_output_dir"])
+                self.assertEqual("旧规则", store.load_mappings()[0].pattern)
+                self.assertEqual(["Legacy status"], store.load_delivery_statuses()["EI"])
+
+            self.assertEqual(root / "data" / "settings.json", store.settings_path)
+            self.assertTrue((root / "data" / "settings.json").is_file())
+            self.assertTrue((root / "data" / "filename_mappings.json").is_file())
+            self.assertTrue((root / "data" / "delivery_status_mappings.json").is_file())
 
 
 if __name__ == "__main__":

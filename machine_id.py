@@ -8,9 +8,9 @@ The code is generated from the Windows MachineGuid registry value
 (readable without administrator rights) and stored locally on first use.
 """
 import os
+from units import get_data_path
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = str(get_data_path())
 MACHINE_ID_FILE = os.path.join(DATA_DIR, "machine_id")
 
 

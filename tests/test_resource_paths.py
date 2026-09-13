@@ -20,6 +20,10 @@ class ResourcePathTests(unittest.TestCase):
                  mock.patch.object(units.sys, "executable", str(executable)):
                 self.assertEqual(resource_root.resolve(), units.get_resource_path())
                 self.assertEqual(executable.parent.resolve(), units.get_base_path())
+                self.assertEqual(
+                    executable.parent.resolve() / "data",
+                    units.get_data_path(),
+                )
 
 
 if __name__ == "__main__":

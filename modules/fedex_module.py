@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from units import get_data_path
 
 
 # ============================================================
@@ -67,7 +68,7 @@ BACKOFF_JITTER_SECONDS = 0.8
 BATCH_REQUEST_INTERVAL_SECONDS = 0.5
 FAILED_QUEUE_ROUNDS = 2
 FAILED_QUEUE_DELAY_SECONDS = 5.0
-STATUS_CACHE_FILE = Path(__file__).resolve().parent / "fedex_status_cache.json"
+STATUS_CACHE_FILE = get_data_path() / "fedex_status_cache.json"
 
 _shared_session: Optional[requests.Session] = None
 _shared_session_lock = threading.Lock()
