@@ -249,13 +249,19 @@ def _merge_inspect(
     mapper: FilenameMapper,
     excluded: set[Path],
     issues: list[tuple[str, str, str]],
-) -> tuple[dict[tuple[str, str], float], int, int]:
+) -> tuple[
+    dict[tuple[str, str], float],
+    dict[tuple[str, str, str], float],
+    int,
+    int,
+]:
     files = _xlsx_files(folder, recursive=False, excluded=excluded)
     files.sort(key=lambda file: (_resolve_date(file)[0], file.name.casefold()))
     if not files:
         raise FileNotFoundError("检验表文件夹中没有可处理的 .xlsx 文件")
 
     totals: dict[tuple[str, str], float] = defaultdict(float)
+    display_totals: dict[tuple[str, str, str], float] = defaultdict(float)
     target_row = 1
     fixed_columns = 0
     data_rows = 0
@@ -332,16 +338,16 @@ def _merge_inspect(
                     file.name,
                     mapping_note,
                 )
-                totals[(date_label, comparison_type)] += _quantity(
-                    _safe_value(source, source_row, 6)
-                )
+                quantity = _quantity(_safe_value(source, source_row, 6))
+                totals[(date_label, comparison_type)] += quantity
+                display_totals[(date_label, display_type, comparison_type)] += quantity
             target_row += 1
             if not empty_row:
                 data_rows += 1
         _copy_merged_ranges(source, output_sheet, row_map, fixed_columns)
         workbook.close()
 
-    return totals, processed_files, data_rows
+    return totals, display_totals, processed_files, data_rows
 
 
 def _merge_droplist(
@@ -467,7 +473,11 @@ def _style_output(workbook) -> None:
     dark_fill = PatternFill("solid", fgColor="173F5F")
     light_fill = PatternFill("solid", fgColor="EAF2F7")
     # 合并明细页保留源文件格式；只格式化本程序新建的汇总和异常页。
-    for sheet in (workbook["核对汇总"], workbook["异常文件"]):
+    for sheet in (
+        workbook["类型箱数"],
+        workbook["核对汇总"],
+        workbook["异常文件"],
+    ):
         sheet.sheet_view.showGridLines = False
         sheet.freeze_panes = "A2" if sheet.max_row > 1 else None
         for cell in sheet[1]:
@@ -524,7 +534,7 @@ def merge_and_reconcile_excel(
     droplist_sheet = droplist_workbook.active
     droplist_sheet.title = "合并Droplist"
 
-    inspect_totals, inspect_files, inspect_rows = _merge_inspect(
+    inspect_totals, display_totals, inspect_files, inspect_rows = _merge_inspect(
         inspect_folder, inspect_sheet, mapper, excluded, issues
     )
     if progress_callback:
@@ -536,6 +546,14 @@ def merge_and_reconcile_excel(
         progress_callback(80)
 
     rows = _build_reconcile_rows(inspect_totals, droplist_totals)
+    type_sheet = inspect_workbook.create_sheet("类型箱数")
+    type_sheet.append(("日期", "类型", "箱数", "归总类别"))
+    for (date, display_type, target_type), quantity in sorted(
+        display_totals.items(),
+        key=lambda item: (_date_sort_key(item[0][0]), item[0][1], item[0][2]),
+    ):
+        type_sheet.append((date, display_type, quantity, target_type))
+
     summary_sheet = inspect_workbook.create_sheet("核对汇总")
     summary_sheet.append(("日期", "类型", "检验表数量", "Droplist数量", "差异", "结果"))
     for row in rows:

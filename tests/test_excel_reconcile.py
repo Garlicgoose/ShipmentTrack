@@ -115,7 +115,7 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertTrue(result.droplist_output_file.is_file())
         workbook = load_workbook(result.inspect_output_file, data_only=False)
         self.assertEqual(
-            ["合并检验表", "核对汇总", "异常文件"],
+            ["合并检验表", "类型箱数", "核对汇总", "异常文件"],
             workbook.sheetnames,
         )
         self.assertEqual("类型", workbook["合并检验表"][1][7].value)
@@ -125,6 +125,12 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual("光联", guanglian[8])
         self.assertEqual("光联业务", guanglian[11])
         self.assertFalse(workbook["核对汇总"].sheet_view.showGridLines)
+        type_rows = list(
+            workbook["类型箱数"].iter_rows(min_row=2, values_only=True)
+        )
+        self.assertIn(("9.10", "澳车", 30, "光联"), type_rows)
+        self.assertIn(("9.10", "814S", 5, "MPO"), type_rows)
+        self.assertFalse(workbook["类型箱数"].sheet_view.showGridLines)
 
         merged_sheet = workbook["合并检验表"]
         self.assertEqual(24, merged_sheet.column_dimensions["A"].width)
