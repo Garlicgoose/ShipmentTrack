@@ -211,30 +211,34 @@ class NativeUiTests(unittest.TestCase):
         self.assertTrue(self.window.run_button.isEnabled())
 
         self.window._switch_page(1, "Excel 合并与核对")
-        QTest.qWait(360)
+        QTest.qWait(420)
         self.window._switch_page(0, "跟踪")
-        QTest.qWait(360)
+        QTest.qWait(420)
         self.assertEqual(str(tracking_output.absolute()), self.window.open_tracking_result.path)
         self.assertTrue(self.window.open_tracking_result.isEnabled())
         with mock.patch("ui.components.QDesktopServices.openUrl", return_value=True) as open_url:
             self.assertTrue(self.window.open_tracking_result.open_file())
         open_url.assert_called_once()
 
-    def test_page_switch_fades_out_before_showing_ready_target(self):
+    def test_page_switch_crossfades_ready_target_without_blank_stage(self):
         self.assertEqual(0, self.window.stack.currentIndex())
         self.window._switch_page(1, "Excel 合并与核对")
 
         self.assertTrue(self.window._page_transitioning)
-        self.assertEqual(0, self.window.stack.currentIndex())
-        self.assertTrue(all(not button.isEnabled() for button in self.window.nav_buttons))
-
-        QTest.qWait(150)
         self.assertEqual(1, self.window.stack.currentIndex())
+        self.assertIsNotNone(self.window._page_overlay)
+        self.assertTrue(all(not button.isEnabled() for button in self.window.nav_buttons))
         self.assertEqual("Excel 合并与核对", self.window.page_title.text())
         self.assertIsNotNone(self.window.excel_page.graphicsEffect())
 
+        QTest.qWait(190)
+        opacity = self.window.excel_page.graphicsEffect().opacity()
+        self.assertGreater(opacity, 0.0)
+        self.assertLess(opacity, 1.0)
+
         QTest.qWait(220)
         self.assertFalse(self.window._page_transitioning)
+        self.assertIsNone(self.window._page_overlay)
         self.assertIsNone(self.window.excel_page.graphicsEffect())
         self.assertTrue(all(button.isEnabled() for button in self.window.nav_buttons))
 

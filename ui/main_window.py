@@ -2,7 +2,15 @@
 """ShipmentTrack 原生主窗口。"""
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QElapsedTimer, QPropertyAnimation, Qt, QTimer, QUrl
+from PySide6.QtCore import (
+    QEasingCurve,
+    QElapsedTimer,
+    QParallelAnimationGroup,
+    QPropertyAnimation,
+    Qt,
+    QTimer,
+    QUrl,
+)
 from PySide6.QtGui import QColor, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -62,6 +70,7 @@ class MainWindow(QMainWindow):
         self._tracking_worker = None
         self._excel_worker = None
         self._page_animation = None
+        self._page_overlay = None
         self._page_transitioning = False
         self._tracking_output_paths = {}
         self._excel_output_paths = {}
@@ -426,52 +435,59 @@ class MainWindow(QMainWindow):
             button.setEnabled(False)
 
         old_page = self.stack.currentWidget()
-        old_effect = QGraphicsOpacityEffect(old_page)
-        old_page.setGraphicsEffect(old_effect)
-        fade_out = QPropertyAnimation(old_effect, b"opacity", self)
-        fade_out.setDuration(110)
-        fade_out.setStartValue(1.0)
-        fade_out.setEndValue(0.08)
-        fade_out.setEasingCurve(QEasingCurve.InCubic)
-        fade_out.finished.connect(
-            lambda: self._show_transition_target(
-                old_page, old_effect, index, title
-            )
-        )
-        self._page_animation = fade_out
-        fade_out.start()
+        overlay = QLabel(self.stack)
+        overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
+        overlay.setGeometry(self.stack.rect())
+        overlay.setPixmap(old_page.grab())
+        overlay.setScaledContents(True)
+        overlay.show()
+        overlay.raise_()
+        overlay_effect = QGraphicsOpacityEffect(overlay)
+        overlay.setGraphicsEffect(overlay_effect)
+        self._page_overlay = overlay
 
-    def _show_transition_target(self, old_page, old_effect, index, title):
-        old_page.setGraphicsEffect(None)
         self.stack.setUpdatesEnabled(False)
         self.stack.setCurrentIndex(index)
         self.page_title.setText(title)
         self._refresh_output_buttons(index)
         new_page = self.stack.currentWidget()
         new_effect = QGraphicsOpacityEffect(new_page)
-        new_effect.setOpacity(0.08)
+        new_effect.setOpacity(0.0)
         new_page.setGraphicsEffect(new_effect)
         self.stack.setUpdatesEnabled(True)
         new_page.update()
         QTimer.singleShot(
             16,
-            lambda: self._fade_in_page(new_page, new_effect),
+            lambda: self._crossfade_page(
+                new_page, new_effect, overlay, overlay_effect
+            ),
         )
 
-    def _fade_in_page(self, page, effect):
-        fade_in = QPropertyAnimation(effect, b"opacity", self)
-        fade_in.setDuration(190)
-        fade_in.setStartValue(0.08)
+    def _crossfade_page(self, page, effect, overlay, overlay_effect):
+        fade_in = QPropertyAnimation(effect, b"opacity")
+        fade_in.setDuration(340)
+        fade_in.setStartValue(0.0)
         fade_in.setEndValue(1.0)
-        fade_in.setEasingCurve(QEasingCurve.OutCubic)
-        fade_in.finished.connect(
-            lambda: self._finish_page_transition(page, effect)
+        fade_in.setEasingCurve(QEasingCurve.InOutCubic)
+        fade_out = QPropertyAnimation(overlay_effect, b"opacity")
+        fade_out.setDuration(340)
+        fade_out.setStartValue(1.0)
+        fade_out.setEndValue(0.0)
+        fade_out.setEasingCurve(QEasingCurve.InOutCubic)
+        group = QParallelAnimationGroup(self)
+        group.addAnimation(fade_in)
+        group.addAnimation(fade_out)
+        group.finished.connect(
+            lambda: self._finish_page_transition(page, overlay)
         )
-        self._page_animation = fade_in
-        fade_in.start()
+        self._page_animation = group
+        group.start()
 
-    def _finish_page_transition(self, page, effect):
+    def _finish_page_transition(self, page, overlay):
         page.setGraphicsEffect(None)
+        overlay.hide()
+        overlay.deleteLater()
+        self._page_overlay = None
         self._page_transitioning = False
         for button in self.nav_buttons:
             button.setEnabled(True)
