@@ -531,6 +531,8 @@ class MainWindow(QMainWindow):
         label.setText(f"{value}%")
 
     def _start_tracking(self):
+        if not self._authorization_ready():
+            return
         if self._tracking_worker and self._tracking_worker.isRunning():
             return
         input_file = self.tracking_input.value()
@@ -770,6 +772,8 @@ class MainWindow(QMainWindow):
         self._tracking_run_output_dir = None
 
     def _start_excel(self):
+        if not self._authorization_ready():
+            return
         if self._excel_worker and self._excel_worker.isRunning():
             return
         inspect_dir = self.inspect_input.value()
@@ -823,6 +827,20 @@ class MainWindow(QMainWindow):
         self._excel_worker.item.connect(self._show_excel_result)
         self._excel_worker.finished_ok.connect(self._excel_finished)
         self._excel_worker.start()
+
+    def _authorization_ready(self):
+        """Fast local recheck before either protected workflow starts."""
+        import license as license_mod
+        import machine_id
+
+        ok, _mode, error = license_mod.revalidate_session(machine_id.get_machine_id())
+        if not ok:
+            QMessageBox.critical(
+                self,
+                "ShipmentTrack",
+                error or "A required service is unavailable. Please try again later.",
+            )
+        return ok
 
     def _show_excel_result(self, result):
         self.excel_table.setRowCount(0)

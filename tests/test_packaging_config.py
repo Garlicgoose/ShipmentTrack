@@ -27,6 +27,8 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn('"modules.dhl_module"', spec)
         for module in ("pandas", "scipy", "pyarrow", "PySide6.QtWebEngineWidgets"):
             self.assertIn(f'"{module}"', spec)
+        self.assertNotIn('"cryptography"', spec)
+        self.assertNotIn('"OpenSSL"', spec)
         self.assertIn('_foreign_icu = {"icuuc.dll", "icudt78.dll"}', spec)
 
     def test_default_mapping_file_is_valid(self):

@@ -40,8 +40,6 @@ a = Analysis(
         "pyarrow",
         "PIL",
         "qtpy",
-        "cryptography",
-        "OpenSSL",
         "PySide6.QtCharts",
         "PySide6.QtDataVisualization",
         "PySide6.QtMultimedia",
