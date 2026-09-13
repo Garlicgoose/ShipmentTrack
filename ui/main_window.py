@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         self._tracking_worker = None
         self._excel_worker = None
         self._page_animation = None
+        self._page_transitioning = False
         self._tracking_output_paths = {}
         self._excel_output_paths = {}
         self._tracking_run_output_dir = None
@@ -414,22 +415,66 @@ class MainWindow(QMainWindow):
         return label
 
     def _switch_page(self, index, title):
-        if self.stack.currentIndex() == index:
+        if (
+            self._page_transitioning
+            or self.stack.currentIndex() == index
+            or not 0 <= index < self.stack.count()
+        ):
             return
+        self._page_transitioning = True
+        for button in self.nav_buttons:
+            button.setEnabled(False)
+
+        old_page = self.stack.currentWidget()
+        old_effect = QGraphicsOpacityEffect(old_page)
+        old_page.setGraphicsEffect(old_effect)
+        fade_out = QPropertyAnimation(old_effect, b"opacity", self)
+        fade_out.setDuration(110)
+        fade_out.setStartValue(1.0)
+        fade_out.setEndValue(0.08)
+        fade_out.setEasingCurve(QEasingCurve.InCubic)
+        fade_out.finished.connect(
+            lambda: self._show_transition_target(
+                old_page, old_effect, index, title
+            )
+        )
+        self._page_animation = fade_out
+        fade_out.start()
+
+    def _show_transition_target(self, old_page, old_effect, index, title):
+        old_page.setGraphicsEffect(None)
+        self.stack.setUpdatesEnabled(False)
         self.stack.setCurrentIndex(index)
         self.page_title.setText(title)
         self._refresh_output_buttons(index)
-        page = self.stack.currentWidget()
-        effect = QGraphicsOpacityEffect(page)
-        page.setGraphicsEffect(effect)
-        animation = QPropertyAnimation(effect, b"opacity", self)
-        animation.setDuration(180)
-        animation.setStartValue(0.35)
-        animation.setEndValue(1.0)
-        animation.setEasingCurve(QEasingCurve.OutCubic)
-        animation.finished.connect(lambda: page.setGraphicsEffect(None))
-        self._page_animation = animation
-        animation.start()
+        new_page = self.stack.currentWidget()
+        new_effect = QGraphicsOpacityEffect(new_page)
+        new_effect.setOpacity(0.08)
+        new_page.setGraphicsEffect(new_effect)
+        self.stack.setUpdatesEnabled(True)
+        new_page.update()
+        QTimer.singleShot(
+            16,
+            lambda: self._fade_in_page(new_page, new_effect),
+        )
+
+    def _fade_in_page(self, page, effect):
+        fade_in = QPropertyAnimation(effect, b"opacity", self)
+        fade_in.setDuration(190)
+        fade_in.setStartValue(0.08)
+        fade_in.setEndValue(1.0)
+        fade_in.setEasingCurve(QEasingCurve.OutCubic)
+        fade_in.finished.connect(
+            lambda: self._finish_page_transition(page, effect)
+        )
+        self._page_animation = fade_in
+        fade_in.start()
+
+    def _finish_page_transition(self, page, effect):
+        page.setGraphicsEffect(None)
+        self._page_transitioning = False
+        for button in self.nav_buttons:
+            button.setEnabled(True)
 
     def _refresh_output_buttons(self, index):
         if index == 0:
