@@ -159,6 +159,32 @@ class ExcelReconcileTests(unittest.TestCase):
         )
         self.assertEqual(1, second.inspect_files)
 
+    def test_overseas_numbered_truck_defaults_to_guanglian(self):
+        source = self.inspect / "9.12 国外出货第6车.xlsx"
+        create_inspect(source, [8])
+        workbook = load_workbook(source)
+        workbook.active.cell(20, 1).fill = PatternFill("solid", fgColor="FFFFFF")
+        workbook.save(source)
+        create_droplist(
+            self.droplist / "Drop shipment list9.12光联.xlsx",
+            [8],
+        )
+
+        result = merge_and_reconcile_excel(
+            self.inspect,
+            self.droplist,
+            self.root / "output",
+            self.rules,
+        )
+
+        row = next(item for item in result.rows if item.target_type == "光联")
+        self.assertEqual("一致", row.result)
+        self.assertFalse(any(issue[1] == source.name for issue in result.issues))
+        merged = load_workbook(result.inspect_output_file)["合并检验表"]
+        self.assertEqual("光联", merged.cell(2, 8).value)
+        self.assertEqual("光联", merged.cell(2, 9).value)
+        self.assertEqual(2, merged.max_row)
+
     def test_droplist_uses_headers_and_ignores_sheet1_and_empty_files(self):
         create_inspect(self.inspect / "9.10 MPO国外EI自提.xlsx", [12])
         day = self.droplist / "9.10"

@@ -102,6 +102,26 @@ def _is_empty_row(sheet, row: int, max_column: int) -> bool:
     )
 
 
+def _last_non_empty_row(sheet, start_row: int, max_column: int) -> int:
+    """返回从 start_row 起最后一个有内容的行号；没有内容时返回 start_row - 1。"""
+    for row in range(sheet.max_row, start_row - 1, -1):
+        if not _is_empty_row(sheet, row, max_column):
+            return row
+    return start_row - 1
+
+
+def _is_overseas_truck_filename(name: str) -> bool:
+    """识别“国外第1车 / 国外出货第一车”等检验表文件名。"""
+    stem = Path(str(name or "")).stem
+    return bool(
+        re.search(
+            r"国外\s*(?:出货\s*)?第\s*[0-9一二三四五六七八九十百零〇两]+\s*车",
+            stem,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _is_droplist_end_row(sheet, row: int, max_column: int) -> bool:
     first = _safe_value(sheet, row, 1)
     if isinstance(first, str):
@@ -248,7 +268,8 @@ def _merge_inspect(
         _copy_column_layout(source, output_sheet, max_column)
         if file_index == 0:
             output_sheet.sheet_view.showGridLines = source.sheet_view.showGridLines
-        if source.max_row < 2:
+        last_source_row = _last_non_empty_row(source, 2, max_column)
+        if last_source_row < 2:
             issues.append(("检验表", file.name, "没有数据行"))
             workbook.close()
             continue
@@ -266,16 +287,31 @@ def _merge_inspect(
             )
 
         match = mapper.match(file.name)
-        comparison_type = (
-            match.target_type if match.target_type in {"光联", "MPO"} else "未识别"
-        )
+        overseas_truck = _is_overseas_truck_filename(file.name)
+        if match.target_type in {"光联", "MPO"}:
+            comparison_type = match.target_type
+        elif overseas_truck:
+            comparison_type = "光联"
+        else:
+            comparison_type = "未识别"
+
+        display_type = str(match.display_type or "").strip()
+        mapping_note = match.note
+        if overseas_truck and (not match.matched or display_type in {"", "未识别"}):
+            # “国外第…车”没有配置类型时，默认属于光联。
+            display_type = "光联"
+        if overseas_truck and not match.matched:
+            mapping_note = "默认规则：国外第…车归类为光联"
+
         _, date_label = _resolve_date(file)
-        if not match.matched:
+        if not match.matched and not overseas_truck:
             issues.append(("检验表", file.name, match.note))
         if not date_label:
             issues.append(("检验表", file.name, "文件名和父文件夹均无法识别日期"))
 
-        for source_row in range(2, source.max_row + 1):
+        # 只复制到最后一个非空行，去掉每个检验表末尾多余的空行；
+        # 文件内部原本存在的空行仍然保留。
+        for source_row in range(2, last_source_row + 1):
             row_map[source_row] = target_row
             empty_row = _is_empty_row(source, source_row, max_column)
             _append_source_row(
@@ -290,11 +326,11 @@ def _merge_inspect(
                     output_sheet,
                     target_row,
                     fixed_columns + 1,
-                    match.display_type,
+                    display_type,
                     comparison_type,
                     date_label,
                     file.name,
-                    match.note,
+                    mapping_note,
                 )
                 totals[(date_label, comparison_type)] += _quantity(
                     _safe_value(source, source_row, 6)
