@@ -44,7 +44,8 @@ class ExcelReconcileResult:
 
 def extract_date_from_name(name: str) -> tuple[tuple[int, int, int], str]:
     """从文件名中提取 YYYY.M.D 或 M.D，返回排序键与显示值。"""
-    stem = Path(str(name or "")).stem
+    filename = Path(str(name or "")).name
+    stem = re.sub(r"\.(?:xlsx|xlsm|xls)$", "", filename, flags=re.IGNORECASE)
     match = re.search(
         r"(?<!\d)(?:(20\d{2})[._-])?(\d{1,2})[._-](\d{1,2})(?!\d)",
         stem,
@@ -108,6 +109,17 @@ def _is_droplist_end_row(sheet, row: int, max_column: int) -> bool:
         if "by fed-ex" in folded or "total" in folded:
             return True
     return _is_empty_row(sheet, row, max_column)
+
+
+def _is_droplist_data_sheet(sheet) -> bool:
+    """有效明细页不依赖页签名，只认第 3 行的业务表头。"""
+    if sheet.max_row < 4:
+        return False
+    headers = {
+        str(_safe_value(sheet, 3, column) or "").strip().casefold()
+        for column in range(1, sheet.max_column + 1)
+    }
+    return "s/o" in headers and "qty" in headers
 
 
 def _copy_column_layout(source_sheet, target_sheet, max_column):
@@ -227,6 +239,7 @@ def _merge_inspect(
     target_row = 1
     fixed_columns = 0
     data_rows = 0
+    processed_files = 0
 
     for file_index, file in enumerate(files):
         workbook = load_workbook(file, data_only=False)
@@ -239,6 +252,7 @@ def _merge_inspect(
             issues.append(("检验表", file.name, "没有数据行"))
             workbook.close()
             continue
+        processed_files += 1
         row_map = {}
         if not fixed_columns:
             fixed_columns = max_column
@@ -291,7 +305,7 @@ def _merge_inspect(
         _copy_merged_ranges(source, output_sheet, row_map, fixed_columns)
         workbook.close()
 
-    return totals, len(files), data_rows
+    return totals, processed_files, data_rows
 
 
 def _merge_droplist(
@@ -314,14 +328,10 @@ def _merge_droplist(
     target_row = 1
     fixed_columns = 0
     data_rows = 0
+    processed_files = 0
 
     for file in files:
         workbook = load_workbook(file, data_only=False)
-        if len(workbook.sheetnames) < 3:
-            issues.append(("Droplist", file.name, "工作表数量少于 3 个"))
-            workbook.close()
-            continue
-
         match = mapper.match(file.name)
         comparison_type = (
             match.target_type if match.target_type in {"光联", "MPO"} else "未识别"
@@ -333,9 +343,12 @@ def _merge_droplist(
             issues.append(("Droplist", file.name, "文件名和父文件夹均无法识别日期"))
 
         file_rows = 0
-        for sheet_name in workbook.sheetnames[1:-1]:
+        for sheet_name in workbook.sheetnames[1:]:
+            normalized_name = sheet_name.strip().casefold()
+            if normalized_name == "address" or re.fullmatch(r"sheet\s*\d*", normalized_name):
+                continue
             source = workbook[sheet_name]
-            if source.max_row < 4:
+            if not _is_droplist_data_sheet(source):
                 continue
             max_column = source.max_column
             _copy_column_layout(source, output_sheet, max_column)
@@ -381,9 +394,11 @@ def _merge_droplist(
             _copy_merged_ranges(source, output_sheet, row_map, fixed_columns)
         if not file_rows:
             issues.append(("Droplist", file.name, "没有有效数据行"))
+        else:
+            processed_files += 1
         workbook.close()
 
-    return totals, len(files), data_rows
+    return totals, processed_files, data_rows
 
 
 def _date_sort_key(label: str):

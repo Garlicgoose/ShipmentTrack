@@ -31,10 +31,26 @@ def create_droplist(path: Path, quantities):
     workbook.create_sheet("Summary")
     data.append([])
     data.append([])
-    data.append(["A", "B", "C", "D", "E", "QTY"])
+    data.append(["S/O", "B", "C", "D", "E", "QTY"])
     for index, quantity in enumerate(quantities, 1):
         data.append([f"row-{index}", "", "", "", "", quantity])
     data.append(["Total", "", "", "", "", sum(quantities)])
+    workbook.save(path)
+
+
+def create_droplist_with_ignored_sheet1(path: Path, quantities, ignored_quantities):
+    workbook = Workbook()
+    workbook.active.title = "9.10"
+    data = workbook.create_sheet("无类型和日期")
+    ignored = workbook.create_sheet("Sheet1")
+    workbook.create_sheet("Address")
+    for sheet, values in ((data, quantities), (ignored, ignored_quantities)):
+        sheet.append([])
+        sheet.append([])
+        sheet.append(["S/O", "B", "C", "D", "E", "QTY"])
+        for index, quantity in enumerate(values, 1):
+            sheet.append([f"row-{index}", "", "", "", "", quantity])
+        sheet.append(["Total", "", "", "", "", sum(values)])
     workbook.save(path)
 
 
@@ -63,6 +79,7 @@ class ExcelReconcileTests(unittest.TestCase):
             extract_date_from_name("2026-09-10 MPO.xlsx"),
         )
         self.assertEqual(((0, 0, 0), ""), extract_date_from_name("unknown.xlsx"))
+        self.assertEqual(((0, 9, 10), "9.10"), extract_date_from_name("9.10"))
 
     def test_merge_and_reconcile_outputs_traceable_sheets(self):
         create_inspect(self.inspect / "9.10 澳车.xlsx", [10, 20])
@@ -141,6 +158,35 @@ class ExcelReconcileTests(unittest.TestCase):
             self.rules,
         )
         self.assertEqual(1, second.inspect_files)
+
+    def test_droplist_uses_headers_and_ignores_sheet1_and_empty_files(self):
+        create_inspect(self.inspect / "9.10 MPO国外EI自提.xlsx", [12])
+        day = self.droplist / "9.10"
+        day.mkdir()
+        create_droplist_with_ignored_sheet1(
+            day / "Drop shipment list without date MPO.xlsx",
+            [12],
+            [999],
+        )
+        Workbook().save(day / "Drop shipment list empty MPO.xlsx")
+
+        result = merge_and_reconcile_excel(
+            self.inspect,
+            self.droplist,
+            self.root / "output",
+            self.rules,
+        )
+
+        self.assertEqual(1, result.droplist_files)
+        self.assertEqual(1, result.droplist_rows)
+        mpo = next(
+            row for row in result.rows
+            if row.target_type == "MPO" and row.date == "9.10"
+        )
+        self.assertEqual("9.10", mpo.date)
+        self.assertEqual(12, mpo.droplist_quantity)
+        self.assertEqual("一致", mpo.result)
+        self.assertTrue(any("empty" in issue[1] for issue in result.issues))
 
 
 if __name__ == "__main__":

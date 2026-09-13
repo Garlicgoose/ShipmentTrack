@@ -52,6 +52,28 @@ class FilenameMappingRule:
 
 
 DEFAULT_FILENAME_MAPPINGS = [
+    FilenameMappingRule(pattern="MPO国外EI自提", target_type="MPO", display_type="EI自提"),
+    FilenameMappingRule(pattern="MPO国外澳车", target_type="MPO", display_type="MPO澳车"),
+    FilenameMappingRule(pattern="MPO国外港车", target_type="MPO", display_type="MPO港车"),
+    FilenameMappingRule(pattern="MPO国外Kerry自提", target_type="MPO", display_type="Kerry自提"),
+    FilenameMappingRule(pattern="国外81R1", target_type="光联", display_type="81R1"),
+    FilenameMappingRule(pattern="国外81S1", target_type="光联", display_type="81S1"),
+    FilenameMappingRule(pattern="国外仓储", target_type="光联", display_type="仓储"),
+    FilenameMappingRule(pattern="MPO国外Bondex自提", target_type="MPO", display_type="Bondex自提"),
+    FilenameMappingRule(pattern="MPO国外FEDEX自提", target_type="MPO", display_type="FEDEX自提"),
+    FilenameMappingRule(pattern="MPO国外K+N自提", target_type="MPO", display_type="K+N自提"),
+    FilenameMappingRule(pattern="MPO国外Crane自提", target_type="MPO", display_type="Crane自提"),
+    FilenameMappingRule(pattern="MPO国外柜车", target_type="MPO", display_type="柜车"),
+    FilenameMappingRule(pattern="国外新增出货资料", target_type="光联", display_type="国外出货资料"),
+    FilenameMappingRule(pattern="MPO国外JAS自提", target_type="MPO", display_type="JAS自提"),
+    FilenameMappingRule(pattern="国外第一车", target_type="光联", display_type="第一车"),
+    FilenameMappingRule(pattern="国外第二车", target_type="光联", display_type="第二车"),
+    FilenameMappingRule(pattern="国外第三车", target_type="光联", display_type="第三车"),
+    FilenameMappingRule(pattern="国外第四车", target_type="光联", display_type="第四车"),
+    FilenameMappingRule(pattern="国外第五车", target_type="光联", display_type="第五车"),
+    FilenameMappingRule(pattern="CELESTICA-EI自提", target_type="光联", display_type="CELESTICA-EI自提"),
+    FilenameMappingRule(pattern="814T", target_type="光联", display_type="814T"),
+    FilenameMappingRule(pattern="国外DHL出货资料", target_type="光联", display_type="国外DHL"),
     FilenameMappingRule(pattern="光联", target_type="光联", display_type="光联"),
     FilenameMappingRule(pattern="MPO", target_type="MPO", display_type="MPO"),
 ]

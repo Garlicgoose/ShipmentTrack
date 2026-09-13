@@ -24,7 +24,10 @@ class PackagingConfigTests(unittest.TestCase):
 
     def test_default_mapping_file_is_valid(self):
         mappings = json.loads((ROOT / "filename_mappings.json").read_text("utf-8"))
-        self.assertEqual(["光联", "MPO"], [item["target_type"] for item in mappings])
+        self.assertEqual(24, len(mappings))
+        self.assertEqual({"光联", "MPO"}, {item["target_type"] for item in mappings})
+        self.assertEqual("EI自提", mappings[0]["display_type"])
+        self.assertEqual(["光联", "MPO"], [item["target_type"] for item in mappings[-2:]])
         delivery = json.loads(
             (ROOT / "delivery_status_mappings.json").read_text("utf-8")
         )
