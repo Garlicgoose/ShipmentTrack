@@ -66,7 +66,10 @@ class PackagingConfigTests(unittest.TestCase):
 
     def test_dependencies_are_pinned_without_pandas(self):
         requirements = (ROOT / "requirements.txt").read_text("utf-8")
-        for package in ("PySide6", "playwright", "openpyxl", "requests", "pypdf", "pyinstaller"):
+        for package in (
+            "PySide6", "playwright", "openpyxl", "requests", "pypdf",
+            "cryptography", "pyinstaller",
+        ):
             self.assertRegex(requirements, rf"(?mi)^{package}==")
         self.assertNotRegex(requirements, r"(?mi)^pandas(?:==|>=)")
 
