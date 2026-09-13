@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""从非 FedEx 的已下载 POD 中随机抽查 5%。"""
+"""从所有已下载 POD 中随机抽查 5%，并按承运商执行校验。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -35,10 +35,40 @@ class PodAuditItem:
     status_field: str
     result: str
     details: str
+    signature_found: bool = False
 
 
 def _normalize_search_text(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+
+
+def _fedex_signature_image_found(reader) -> bool:
+    """识别 FedEx SPOD 中区别于页底背景和 Logo 的横向签名图。"""
+    dimensions = []
+    for page in reader.pages[:5]:
+        page_dimensions = []
+        try:
+            resources = page.get("/Resources") or {}
+            xobjects = resources.get("/XObject") or {}
+            for reference in xobjects.values():
+                image = reference.get_object()
+                if str(image.get("/Subtype")) != "/Image":
+                    continue
+                page_dimensions.append((int(image.get("/Width", 0)), int(image.get("/Height", 0))))
+        except (AttributeError, TypeError, ValueError):
+            pass
+        if not page_dimensions:
+            for image in getattr(page, "images", ()):
+                size = getattr(getattr(image, "image", None), "size", None)
+                if size:
+                    page_dimensions.append(tuple(size))
+        dimensions.extend(page_dimensions)
+    return any(
+        100 <= width <= 600
+        and 30 <= height <= 140
+        and 2.2 <= width / max(height, 1) <= 8
+        for width, height in dimensions
+    )
 
 
 def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
@@ -48,6 +78,7 @@ def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
     delivered_found = False
     status_field = ""
     details = ""
+    signature_found = False
     try:
         reader = PdfReader(str(path))
         valid_pdf = len(reader.pages) > 0
@@ -74,8 +105,15 @@ def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
             status_field = next(
                 (term for term in DELIVERED_TERMS if term in folded), ""
             )
+        if str(carrier).strip().casefold() == "fedex":
+            signature_found = (
+                "signed for by" in folded
+                and _fedex_signature_image_found(reader)
+            )
         if not text.strip():
             details = "PDF没有可提取文本，需要人工查看或OCR"
+        elif str(carrier).strip().casefold() == "fedex" and not signature_found:
+            details = "FedEx POD未识别到签名图像"
         elif not tracking_found and not delivered_found:
             details = "未找到运单号和送达字段"
         elif not tracking_found:
@@ -85,7 +123,9 @@ def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
     except Exception as exc:  # noqa: BLE001
         details = f"PDF读取失败：{exc}"
 
-    if valid_pdf and tracking_found and delivered_found:
+    is_fedex = str(carrier).strip().casefold() == "fedex"
+    carrier_check_passed = signature_found if is_fedex else delivered_found
+    if valid_pdf and tracking_found and carrier_check_passed:
         result = "通过"
     elif valid_pdf:
         result = "人工复核"
@@ -103,6 +143,7 @@ def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
         status_field=status_field,
         result=result,
         details=details,
+        signature_found=signature_found,
     )
 
 
@@ -121,7 +162,7 @@ def choose_pod_samples(
         delivered = bool(result.get("is_delivered")) or status in {
             "delivered", "completed"
         }
-        if carrier == "fedex" or not delivered or not pdf_file:
+        if not delivered or not pdf_file:
             continue
         if Path(pdf_file).is_file():
             eligible.append(result)
@@ -131,7 +172,7 @@ def choose_pod_samples(
     random_count = min(math.ceil(len(eligible) * sample_rate), len(eligible))
     generator = rng or random.SystemRandom()
     sampled = generator.sample(eligible, random_count)
-    return [(result, "非FedEx随机抽查5%") for result in sampled]
+    return [(result, "全部POD随机抽查5%") for result in sampled]
 
 
 def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
@@ -141,7 +182,7 @@ def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
     sheet.sheet_view.showGridLines = False
     headers = (
         "运单号", "承运商", "POD文件", "抽查原因", "查询状态", "PDF有效",
-        "运单号匹配", "提取状态", "送达字段匹配", "结果", "说明",
+        "运单号匹配", "提取状态", "送达字段匹配", "FedEx签名", "结果", "说明",
     )
     sheet.append(headers)
     for item in items:
@@ -155,6 +196,7 @@ def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
             "是" if item.tracking_found else "否",
             item.status_field,
             "是" if item.delivered_found else "否",
+            "是" if item.signature_found else "否",
             item.result,
             item.details,
         ))
@@ -163,7 +205,7 @@ def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
         cell.fill = header_fill
         cell.font = Font(color="FFFFFF", bold=True)
         cell.alignment = Alignment(horizontal="center", vertical="center")
-    widths = (18, 12, 42, 20, 24, 10, 12, 36, 14, 12, 44)
+    widths = (18, 12, 42, 20, 24, 10, 12, 36, 14, 12, 12, 44)
     for index, width in enumerate(widths, 1):
         sheet.column_dimensions[chr(64 + index)].width = width
     sheet.freeze_panes = "A2"
@@ -200,6 +242,7 @@ def audit_pod_sample(
             status_field=checked.status_field,
             result=checked.result,
             details=checked.details,
+            signature_found=checked.signature_found,
         ))
     if items:
         _save_audit_workbook(items, Path(output_file))

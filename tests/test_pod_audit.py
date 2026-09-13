@@ -15,16 +15,25 @@ from modules.pod_audit import (
 
 
 class FakePage:
-    def __init__(self, text):
+    def __init__(self, text, images=()):
         self.text = text
+        self.images = images
 
     def extract_text(self):
         return self.text
 
+    def get(self, _key):
+        return None
+
+
+class FakeImage:
+    def __init__(self, size):
+        self.image = type("Image", (), {"size": size})()
+
 
 class FakeReader:
-    def __init__(self, text):
-        self.pages = [FakePage(text)]
+    def __init__(self, text, images=()):
+        self.pages = [FakePage(text, images)]
 
 
 class PodAuditTests(unittest.TestCase):
@@ -32,7 +41,7 @@ class PodAuditTests(unittest.TestCase):
         with mock.patch("modules.pod_audit.PdfReader", return_value=FakeReader(
             "Tracking number 123 456. Status: Delivered. Proof of Delivery"
         )):
-            item = inspect_pod("123456.pdf", "123456", "FedEx")
+            item = inspect_pod("123456.pdf", "123456", "DHL")
         self.assertEqual("通过", item.result)
         self.assertTrue(item.tracking_found)
         self.assertTrue(item.delivered_found)
@@ -41,11 +50,11 @@ class PodAuditTests(unittest.TestCase):
         with mock.patch("modules.pod_audit.PdfReader", return_value=FakeReader(
             "Tracking number 123456. Status: In transit"
         )):
-            item = inspect_pod("123456.pdf", "123456", "FedEx")
+            item = inspect_pod("123456.pdf", "123456", "DHL")
         self.assertEqual("人工复核", item.result)
         self.assertFalse(item.delivered_found)
 
-    def test_only_non_fedex_pods_are_sampled_at_five_percent(self):
+    def test_all_carrier_pods_are_sampled_at_five_percent(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             results = []
@@ -62,9 +71,28 @@ class PodAuditTests(unittest.TestCase):
                     "备注": "",
                 })
             selected = choose_pod_samples(results, rng=random.Random(7))
-        self.assertEqual(2, len(selected))
-        self.assertTrue(all(item[0]["快递公司"] != "FedEx" for item in selected))
-        self.assertTrue(all(item[1] == "非FedEx随机抽查5%" for item in selected))
+        self.assertEqual(3, len(selected))
+        self.assertTrue(all(item[1] == "全部POD随机抽查5%" for item in selected))
+
+    def test_fedex_requires_signature_image_instead_of_delivered_text(self):
+        signed = FakeReader(
+            "Tracking number 492670345899. Status: Delivered. Signed for by:",
+            [FakeImage((400, 95)), FakeImage((544, 160))],
+        )
+        with mock.patch("modules.pod_audit.PdfReader", return_value=signed):
+            item = inspect_pod("492670345899.pdf", "492670345899", "FedEx")
+        self.assertEqual("通过", item.result)
+        self.assertTrue(item.signature_found)
+
+        unsigned = FakeReader(
+            "Tracking number 492670345899. Status: Delivered. Signed for by:",
+            [FakeImage((544, 160))],
+        )
+        with mock.patch("modules.pod_audit.PdfReader", return_value=unsigned):
+            item = inspect_pod("492670345899.pdf", "492670345899", "FedEx")
+        self.assertEqual("人工复核", item.result)
+        self.assertFalse(item.signature_found)
+        self.assertIn("签名图像", item.details)
 
     def test_audit_writes_traceable_workbook(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -98,11 +126,12 @@ class PodAuditTests(unittest.TestCase):
             items = audit_pod_sample([result], output, inspector=fake_inspector)
             workbook = load_workbook(output, data_only=True)
         self.assertEqual(1, len(items))
-        self.assertEqual("非FedEx随机抽查5%", items[0].sample_reason)
+        self.assertEqual("全部POD随机抽查5%", items[0].sample_reason)
         self.assertEqual("POD抽查", workbook.active.title)
         self.assertEqual("Delivered", workbook.active["E2"].value)
         self.assertEqual("Status: Delivered", workbook.active["H2"].value)
-        self.assertEqual("通过", workbook.active["J2"].value)
+        self.assertEqual("否", workbook.active["J2"].value)
+        self.assertEqual("通过", workbook.active["K2"].value)
 
 
 if __name__ == "__main__":
