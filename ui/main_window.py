@@ -62,6 +62,9 @@ class MainWindow(QMainWindow):
         self._tracking_worker = None
         self._excel_worker = None
         self._page_animation = None
+        self._tracking_output_paths = {}
+        self._excel_output_paths = {}
+        self._tracking_run_output_dir = None
         self._tracking_counts = {"total": 0, "delivered": 0, "transit": 0, "attention": 0}
         self._build_ui()
 
@@ -408,6 +411,7 @@ class MainWindow(QMainWindow):
             return
         self.stack.setCurrentIndex(index)
         self.page_title.setText(title)
+        self._refresh_output_buttons(index)
         page = self.stack.currentWidget()
         effect = QGraphicsOpacityEffect(page)
         page.setGraphicsEffect(effect)
@@ -419,6 +423,25 @@ class MainWindow(QMainWindow):
         animation.finished.connect(lambda: page.setGraphicsEffect(None))
         self._page_animation = animation
         animation.start()
+
+    def _refresh_output_buttons(self, index):
+        if index == 0:
+            pairs = (
+                (self.open_tracking_result, "result"),
+                (self.open_cleaned_result, "cleaned"),
+                (self.open_pod_audit, "audit"),
+            )
+            paths = self._tracking_output_paths
+        elif index == 1:
+            pairs = (
+                (self.open_inspect_output, "inspect"),
+                (self.open_droplist_output, "droplist"),
+            )
+            paths = self._excel_output_paths
+        else:
+            return
+        for button, key in pairs:
+            button.set_path(paths.get(key, ""))
 
     @staticmethod
     def _make_progress_animation(progress_bar):
@@ -453,6 +476,7 @@ class MainWindow(QMainWindow):
         settings["only_arrival"] = not self.pod_switch.isChecked()
         self.store.save_settings(settings)
         self.settings = settings
+        self._tracking_run_output_dir = Path(output_dir).expanduser().absolute()
         self.tracking_table.setRowCount(0)
         self.tracking_log.clear()
         for button in (
@@ -461,6 +485,7 @@ class MainWindow(QMainWindow):
             self.open_pod_audit,
         ):
             button.set_path("")
+        self._tracking_output_paths = {}
         self._tracking_counts = {"total": 0, "delivered": 0, "transit": 0, "attention": 0}
         self._update_tracking_stats()
         self.current_task_label.setText(
@@ -616,17 +641,21 @@ class MainWindow(QMainWindow):
             self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 100)
             self._show_status("查询完成")
             self.current_task_label.setText("查询完成")
-            output_dir = Path(self.tracking_output.value())
-            self.open_tracking_result.set_path(output_dir / "tracking_result.xlsx")
-            self.open_cleaned_result.set_path(
-                output_dir / "tracking_list_cleaned_sorted.xlsx"
-            )
-            self.open_pod_audit.set_path(output_dir / "pod_audit.xlsx")
+            output_dir = self._tracking_run_output_dir or Path(
+                self.tracking_output.value()
+            ).expanduser().absolute()
+            self._tracking_output_paths = {
+                "result": output_dir / "tracking_result.xlsx",
+                "cleaned": output_dir / "tracking_list_cleaned_sorted.xlsx",
+                "audit": output_dir / "pod_audit.xlsx",
+            }
+            self._refresh_output_buttons(0)
         else:
             self._show_status("查询失败")
             self.current_task_label.setText("查询失败")
             QMessageBox.critical(self, "ShipmentTrack", error or "查询失败")
         self._tracking_worker = None
+        self._tracking_run_output_dir = None
 
     def _start_excel(self):
         if self._excel_worker and self._excel_worker.isRunning():
@@ -659,6 +688,7 @@ class MainWindow(QMainWindow):
         self.excel_summary.setText("正在处理")
         self.open_inspect_output.set_path("")
         self.open_droplist_output.set_path("")
+        self._excel_output_paths = {}
         self._animate_progress(self.excel_progress, self._excel_progress_anim, self.excel_progress_text, 0)
 
         def task(log, progress, item):
@@ -698,8 +728,11 @@ class MainWindow(QMainWindow):
             f"Droplist {result.droplist_files} 个 / {result.droplist_rows} 行　"
             f"异常文件 {len(result.issues)} 个"
         )
-        self.open_inspect_output.set_path(result.inspect_output_file)
-        self.open_droplist_output.set_path(result.droplist_output_file)
+        self._excel_output_paths = {
+            "inspect": result.inspect_output_file,
+            "droplist": result.droplist_output_file,
+        }
+        self._refresh_output_buttons(1)
 
     def _excel_finished(self, ok, error):
         self.excel_run_button.setEnabled(True)

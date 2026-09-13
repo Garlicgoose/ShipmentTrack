@@ -164,6 +164,35 @@ class NativeUiTests(unittest.TestCase):
         self.assertTrue(self.window.open_inspect_output.isEnabled())
         self.assertTrue(self.window.open_droplist_output.isEnabled())
 
+    def test_parallel_panels_keep_their_own_controls_and_output_paths(self):
+        tracking_output = Path(self.temp_dir.name) / "tracking_result.xlsx"
+        cleaned_output = Path(self.temp_dir.name) / "tracking_list_cleaned_sorted.xlsx"
+        audit_output = Path(self.temp_dir.name) / "pod_audit.xlsx"
+        for path in (tracking_output, cleaned_output, audit_output):
+            path.write_bytes(b"xlsx")
+        self.window._tracking_output_paths = {
+            "result": tracking_output,
+            "cleaned": cleaned_output,
+            "audit": audit_output,
+        }
+        self.window._refresh_output_buttons(0)
+
+        self.window._set_tracking_running(True)
+        self.assertTrue(self.window.excel_run_button.isEnabled())
+        self.assertFalse(self.window.run_button.isEnabled())
+        self.window.excel_run_button.setEnabled(False)
+        self.assertFalse(self.window.excel_run_button.isEnabled())
+        self.window._set_tracking_running(False)
+        self.assertTrue(self.window.run_button.isEnabled())
+
+        self.window._switch_page(1, "Excel 合并与核对")
+        self.window._switch_page(0, "跟踪")
+        self.assertEqual(str(tracking_output.absolute()), self.window.open_tracking_result.path)
+        self.assertTrue(self.window.open_tracking_result.isEnabled())
+        with mock.patch("ui.components.QDesktopServices.openUrl", return_value=True) as open_url:
+            self.assertTrue(self.window.open_tracking_result.open_file())
+        open_url.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

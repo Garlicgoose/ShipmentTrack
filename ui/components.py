@@ -184,7 +184,7 @@ class OpenFileButton(QPushButton):
         return self._path
 
     def set_path(self, path):
-        self._path = str(path or "")
+        self._path = str(Path(path).expanduser().absolute()) if path else ""
         exists = bool(self._path and Path(self._path).is_file())
         self.setEnabled(exists)
         self.setToolTip(self._path if exists else "文件尚未生成")
@@ -192,6 +192,8 @@ class OpenFileButton(QPushButton):
     def open_file(self):
         if self._path and Path(self._path).is_file():
             return QDesktopServices.openUrl(QUrl.fromLocalFile(self._path))
+        self.setEnabled(False)
+        self.setToolTip("文件不存在或已被移动")
         return False
 
 
