@@ -93,21 +93,45 @@ class NativeUiTests(unittest.TestCase):
         self.assertNotIn("当前处理", labels)
         self.assertNotIn("查询范围", labels)
         self.assertIn("用时", labels)
-        self.assertIn("本次 POD", labels)
+        self.assertNotIn("本次 POD", labels)
+        self.assertEqual(
+            ["FedEx", "DHL", "UPS", "EI", "DSV"],
+            list(self.window.carrier_average_labels),
+        )
 
-    def test_tracking_overview_counts_pods_and_formats_elapsed_time(self):
-        pdf = Path(self.temp_dir.name) / "signed.pdf"
-        pdf.write_bytes(b"%PDF-test")
-        self.window._tracking_counts = {
-            "total": 0, "delivered": 0, "transit": 0, "attention": 0, "pod": 0
+    def test_tracking_overview_updates_carrier_averages_only_when_finished(self):
+        self.window._carrier_timings = {
+            carrier: {"total": 0.0, "count": 0}
+            for carrier in self.window.carrier_average_labels
         }
         self.window._append_tracking_result({
             "运单号": "123",
             "快递公司": "FedEx",
             "状态": "Delivered",
-            "POD文件": str(pdf),
+            "用时(秒)": 1,
         })
-        self.assertEqual("1 份", self.window.pod_count_label.text())
+        self.window._append_tracking_result({
+            "运单号": "456",
+            "快递公司": "FEDEX",
+            "状态": "Delivered",
+            "用时(秒)": 2,
+        })
+        self.window._append_tracking_result({
+            "运单号": "789",
+            "快递公司": "DHL",
+            "状态": "Delivered",
+            "用时(秒)": 3,
+        })
+        self.assertTrue(all(
+            label.text() == "--"
+            for label in self.window.carrier_average_labels.values()
+        ))
+        self.window._update_carrier_averages()
+        self.assertEqual("1.50", self.window.carrier_average_labels["FedEx"].text())
+        self.assertEqual("3.00", self.window.carrier_average_labels["DHL"].text())
+        self.assertEqual("--", self.window.carrier_average_labels["UPS"].text())
+
+    def test_tracking_overview_formats_elapsed_time(self):
         with mock.patch.object(self.window._tracking_elapsed, "isValid", return_value=True), \
              mock.patch.object(self.window._tracking_elapsed, "elapsed", return_value=65_000):
             self.window._update_tracking_elapsed()

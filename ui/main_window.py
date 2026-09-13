@@ -54,6 +54,7 @@ from units import detect_chrome_path, get_resource_path
 APP_ICON = str(get_resource_path() / "assets" / "app_icon.png")
 PROFILE_AVATAR = str(get_resource_path() / "assets" / "github_avatar.jpg")
 PROFILE_NAME = "Garlicgoose"
+CARRIER_NAMES = ("FedEx", "DHL", "UPS", "EI", "DSV")
 
 
 class MainWindow(QMainWindow):
@@ -76,13 +77,15 @@ class MainWindow(QMainWindow):
         self._excel_output_paths = {}
         self._tracking_run_output_dir = None
         self._tracking_counts = {
-            "total": 0, "delivered": 0, "transit": 0, "attention": 0, "pod": 0
+            "total": 0, "delivered": 0, "transit": 0, "attention": 0
+        }
+        self._carrier_timings = {
+            carrier: {"total": 0.0, "count": 0} for carrier in CARRIER_NAMES
         }
         self._tracking_elapsed = QElapsedTimer()
         self._tracking_timer = QTimer(self)
         self._tracking_timer.setInterval(500)
         self._tracking_timer.timeout.connect(self._update_tracking_elapsed)
-        self._pod_download_enabled = True
         self._build_ui()
 
     def _build_ui(self):
@@ -205,15 +208,26 @@ class MainWindow(QMainWindow):
         elapsed.addWidget(elapsed_title)
         elapsed.addWidget(self.elapsed_label)
         overview_layout.addLayout(elapsed, 1)
-        pod_summary = QVBoxLayout()
-        pod_summary.setSpacing(3)
-        pod_title = QLabel("本次 POD")
-        pod_title.setObjectName("muted")
-        self.pod_count_label = QLabel("等待生成")
-        self.pod_count_label.setObjectName("sectionTitle")
-        pod_summary.addWidget(pod_title)
-        pod_summary.addWidget(self.pod_count_label)
-        overview_layout.addLayout(pod_summary, 2)
+        average_cards = QHBoxLayout()
+        average_cards.setSpacing(8)
+        self.carrier_average_labels = {}
+        for carrier in CARRIER_NAMES:
+            card = QFrame()
+            card.setObjectName("averageCard")
+            card.setFixedSize(76, 58)
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(8, 6, 8, 6)
+            card_layout.setSpacing(1)
+            name = QLabel(carrier)
+            name.setObjectName("averageCarrier")
+            value = QLabel("--")
+            value.setObjectName("averageValue")
+            card_layout.addWidget(name)
+            card_layout.addWidget(value)
+            self.carrier_average_labels[carrier] = value
+            average_cards.addWidget(card)
+        overview_layout.addLayout(average_cards)
+        overview_layout.addStretch(1)
         layout.addWidget(overview)
 
         query_card = QFrame()
@@ -555,13 +569,16 @@ class MainWindow(QMainWindow):
             button.set_path("")
         self._tracking_output_paths = {}
         self._tracking_counts = {
-            "total": 0, "delivered": 0, "transit": 0, "attention": 0, "pod": 0
+            "total": 0, "delivered": 0, "transit": 0, "attention": 0
         }
+        self._carrier_timings = {
+            carrier: {"total": 0.0, "count": 0} for carrier in CARRIER_NAMES
+        }
+        for label in self.carrier_average_labels.values():
+            label.setText("--")
         self._update_tracking_stats()
-        self._pod_download_enabled = self.pod_switch.isChecked()
         self.overview_state_label.setText("正在查询")
         self.elapsed_label.setText("00:00")
-        self.pod_count_label.setText("等待生成" if self._pod_download_enabled else "未启用")
         self._tracking_elapsed.start()
         self._tracking_timer.start()
         self._set_tracking_running(True)
@@ -622,9 +639,19 @@ class MainWindow(QMainWindow):
         pod_item.setData(Qt.UserRole, pod_path if pod_exists else "")
         pod_item.setForeground(QColor("#21A366" if pod_exists else "#AAB6BF"))
         pod_item.setToolTip("点击打开 POD" if pod_exists else "没有 POD")
-        if pod_exists:
-            self._tracking_counts["pod"] += 1
-            self.pod_count_label.setText(f"{self._tracking_counts['pod']} 份")
+
+        carrier_key = str(result.get("快递公司", "")).strip().casefold()
+        carrier = next(
+            (name for name in CARRIER_NAMES if name.casefold() == carrier_key),
+            None,
+        )
+        try:
+            elapsed = float(result.get("用时(秒)", ""))
+        except (TypeError, ValueError):
+            elapsed = -1
+        if carrier and elapsed >= 0:
+            self._carrier_timings[carrier]["total"] += elapsed
+            self._carrier_timings[carrier]["count"] += 1
 
         status = str(result.get("状态", "")).casefold()
         remark = str(result.get("备注", ""))
@@ -719,6 +746,14 @@ class MainWindow(QMainWindow):
             if hours else f"{minutes:02d}:{seconds:02d}"
         )
 
+    def _update_carrier_averages(self):
+        for carrier, label in self.carrier_average_labels.items():
+            timing = self._carrier_timings[carrier]
+            if timing["count"]:
+                label.setText(f"{timing['total'] / timing['count']:.2f}")
+            else:
+                label.setText("--")
+
     def _tracking_finished(self, ok, error):
         self._tracking_timer.stop()
         self._update_tracking_elapsed()
@@ -727,8 +762,7 @@ class MainWindow(QMainWindow):
             self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 100)
             self._show_status("查询完成")
             self.overview_state_label.setText("查询完成")
-            if self._pod_download_enabled and not self._tracking_counts["pod"]:
-                self.pod_count_label.setText("0 份")
+            self._update_carrier_averages()
             output_dir = self._tracking_run_output_dir or Path(
                 self.tracking_output.value()
             ).expanduser().absolute()

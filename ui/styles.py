@@ -18,6 +18,13 @@ QLabel#sectionTitle { font-size: 16px; font-weight: 700; color: #20384C; }
 QLabel#muted { color: #708294; }
 QLabel#statLabel { color: #708294; font-size: 12px; }
 QLabel#statValue { color: #172B3C; font-size: 24px; font-weight: 700; }
+QFrame#averageCard {
+    background: #F7FAFB;
+    border: 1px solid #E1E9EE;
+    border-radius: 9px;
+}
+QLabel#averageCarrier { color: #708294; font-size: 11px; }
+QLabel#averageValue { color: #173F5F; font-size: 16px; font-weight: 700; }
 
 QPushButton#navButton {
     color: #C8D6E1;
