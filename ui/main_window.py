@@ -5,8 +5,9 @@ from pathlib import Path
 from PySide6.QtCore import (
     QEasingCurve,
     QElapsedTimer,
-    QParallelAnimationGroup,
+    QPauseAnimation,
     QPropertyAnimation,
+    QSequentialAnimationGroup,
     Qt,
     QTimer,
     QUrl,
@@ -448,57 +449,46 @@ class MainWindow(QMainWindow):
         for button in self.nav_buttons:
             button.setEnabled(False)
 
-        old_page = self.stack.currentWidget()
         overlay = QLabel(self.stack)
         overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
         overlay.setGeometry(self.stack.rect())
-        overlay.setPixmap(old_page.grab())
-        overlay.setScaledContents(True)
+        overlay.setStyleSheet("background: #F4F7FA; border: none;")
         overlay.show()
         overlay.raise_()
         overlay_effect = QGraphicsOpacityEffect(overlay)
+        overlay_effect.setOpacity(0.0)
         overlay.setGraphicsEffect(overlay_effect)
         self._page_overlay = overlay
 
-        self.stack.setUpdatesEnabled(False)
-        self.stack.setCurrentIndex(index)
-        self.page_title.setText(title)
-        self._refresh_output_buttons(index)
-        new_page = self.stack.currentWidget()
-        new_effect = QGraphicsOpacityEffect(new_page)
-        new_effect.setOpacity(0.0)
-        new_page.setGraphicsEffect(new_effect)
-        self.stack.setUpdatesEnabled(True)
-        new_page.update()
-        QTimer.singleShot(
-            16,
-            lambda: self._crossfade_page(
-                new_page, new_effect, overlay, overlay_effect
-            ),
-        )
+        cover = QPropertyAnimation(overlay_effect, b"opacity")
+        cover.setDuration(130)
+        cover.setStartValue(0.0)
+        cover.setEndValue(1.0)
+        cover.setEasingCurve(QEasingCurve.OutCubic)
+        cover.finished.connect(lambda: self._swap_page_under_cover(index, title))
 
-    def _crossfade_page(self, page, effect, overlay, overlay_effect):
-        fade_in = QPropertyAnimation(effect, b"opacity")
-        fade_in.setDuration(340)
-        fade_in.setStartValue(0.0)
-        fade_in.setEndValue(1.0)
-        fade_in.setEasingCurve(QEasingCurve.InOutCubic)
-        fade_out = QPropertyAnimation(overlay_effect, b"opacity")
-        fade_out.setDuration(340)
-        fade_out.setStartValue(1.0)
-        fade_out.setEndValue(0.0)
-        fade_out.setEasingCurve(QEasingCurve.InOutCubic)
-        group = QParallelAnimationGroup(self)
-        group.addAnimation(fade_in)
-        group.addAnimation(fade_out)
-        group.finished.connect(
-            lambda: self._finish_page_transition(page, overlay)
-        )
+        settle = QPauseAnimation(50)
+        reveal = QPropertyAnimation(overlay_effect, b"opacity")
+        reveal.setDuration(220)
+        reveal.setStartValue(1.0)
+        reveal.setEndValue(0.0)
+        reveal.setEasingCurve(QEasingCurve.InOutCubic)
+
+        group = QSequentialAnimationGroup(self)
+        group.addAnimation(cover)
+        group.addAnimation(settle)
+        group.addAnimation(reveal)
+        group.finished.connect(lambda: self._finish_page_transition(overlay))
         self._page_animation = group
         group.start()
 
-    def _finish_page_transition(self, page, overlay):
-        page.setGraphicsEffect(None)
+    def _swap_page_under_cover(self, index, title):
+        self.stack.setCurrentIndex(index)
+        self.page_title.setText(title)
+        self._refresh_output_buttons(index)
+        self.stack.currentWidget().update()
+
+    def _finish_page_transition(self, overlay):
         overlay.hide()
         overlay.deleteLater()
         self._page_overlay = None

@@ -271,23 +271,23 @@ class NativeUiTests(unittest.TestCase):
             self.assertTrue(self.window.open_tracking_result.open_file())
         open_url.assert_called_once()
 
-    def test_page_switch_crossfades_ready_target_without_blank_stage(self):
+    def test_page_switch_hides_content_swap_behind_opaque_cover(self):
         self.assertEqual(0, self.window.stack.currentIndex())
         self.window._switch_page(1, "Excel 合并与核对")
 
         self.assertTrue(self.window._page_transitioning)
-        self.assertEqual(1, self.window.stack.currentIndex())
+        self.assertEqual(0, self.window.stack.currentIndex())
         self.assertIsNotNone(self.window._page_overlay)
         self.assertTrue(all(not button.isEnabled() for button in self.window.nav_buttons))
+        self.assertIn("#F4F7FA", self.window._page_overlay.styleSheet())
+        self.assertIsNone(self.window.excel_page.graphicsEffect())
+
+        QTest.qWait(195)
+        self.assertEqual(1, self.window.stack.currentIndex())
         self.assertEqual("Excel 合并与核对", self.window.page_title.text())
-        self.assertIsNotNone(self.window.excel_page.graphicsEffect())
+        self.assertGreater(self.window._page_overlay.graphicsEffect().opacity(), 0.9)
 
-        QTest.qWait(190)
-        opacity = self.window.excel_page.graphicsEffect().opacity()
-        self.assertGreater(opacity, 0.0)
-        self.assertLess(opacity, 1.0)
-
-        QTest.qWait(220)
+        QTest.qWait(280)
         self.assertFalse(self.window._page_transitioning)
         self.assertIsNone(self.window._page_overlay)
         self.assertIsNone(self.window.excel_page.graphicsEffect())
