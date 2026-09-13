@@ -36,6 +36,9 @@ ui/         PySide6 原生界面、控件、样式和后台线程
    字段，结果写入 `pod_audit.xlsx`。
 7. 跟踪与 Excel 合并由两个独立 QThread 执行，输出路径也分别保存。
 
+授权与机器码的通用实现位于 `E:\python_modules\authorization`；本项目的
+`license.py` 只保存 ShipmentTrack 的 URL、公钥和缓存路径配置。
+
 ## 映射配置
 
 - `data/filename_mappings.json`：检验表文件名关键字、详细类型及光联/MPO 归总类别。

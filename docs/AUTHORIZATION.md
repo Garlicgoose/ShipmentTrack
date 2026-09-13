@@ -27,8 +27,7 @@
 2. 每次发布把 `--revision` 增加 1，运行：
 
 ```powershell
-cd E:\program\ShipmentTrack
-python .\scripts\license_admin.py sign `
+authorization-admin sign `
   --private C:\Users\admin\Documents\Shared-App-License-Admin\ed25519-private.key `
   --machines C:\Users\admin\Documents\Shared-App-License-Admin\machines.json `
   --output C:\Users\admin\Documents\Shared-App-License-Admin\authorization.json `
@@ -43,7 +42,13 @@ GitHub 中只出现机器码的 SHA-256 摘要，不再公开原始机器码。�
 
 ## 迁移到其他程序
 
-复制 `portable_auth.py`，为新程序写一个类似 `license.py` 的薄适配层，并复用：
+先安装共享包，再为新程序写一个类似 `license.py` 的薄适配层：
+
+```powershell
+python -m pip install -e E:\python_modules\authorization
+```
+
+共享包自身的完整说明位于 `E:\python_modules\authorization\README.md`。新程序复用：
 
 - 同一个 GitHub 签名文件 URL；
 - 同一个 `PUBLIC_KEY_B64`；

@@ -81,6 +81,10 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("ed25519-private.key", authorization)
         self.assertIn("--revision 2", authorization)
         self.assertIn("PyArmor trial/non-profits", authorization)
+        self.assertIn("E:\\python_modules\\authorization", authorization)
+        shared_readme = Path("E:/python_modules/authorization/README.md")
+        self.assertTrue(shared_readme.is_file())
+        self.assertIn("authorization-machine-id", shared_readme.read_text("utf-8"))
         self.assertNotIn("GetMachineId.exe", readme)
         self.assertNotIn("GetMachineId.exe", guide)
 

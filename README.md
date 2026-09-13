@@ -64,10 +64,11 @@ Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置�
 
 ## 目录
 ```
-main.py / units.py / license.py / machine_id.py / ShipmentTrack.spec
+main.py / units.py / license.py / ShipmentTrack.spec
 modules/（跟踪、设置、Excel 合并与核对）
 ui/（PySide6 原生界面） / assets/（图标与本地头像）
 docs/ARCHITECTURE.md（框架与目录职责）
+E:/python_modules/authorization（共享授权与机器码包）
 data/filename_mappings.json（由设置页维护）
 data/delivery_status_mappings.json（EI/DSV 额外抵达状态）
 data/settings.json（界面设置，首次保存后生成）
