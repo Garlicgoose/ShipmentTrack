@@ -6,6 +6,8 @@ Playwright 驱动仍需随程序发布，但 Chromium 浏览器本体不进入�
 """
 from pathlib import Path
 
+auth_obfuscated = Path("build/auth_obfuscated").resolve()
+
 datas = [
     ("assets/app_icon.ico", "assets"),
     ("assets/app_icon.png", "assets"),
@@ -24,7 +26,8 @@ hiddenimports = [
 
 a = Analysis(
     ["main.py"],
-    pathex=["."],
+    # Prefer the PyArmor-generated authorization modules over their plain source.
+    pathex=[str(auth_obfuscated), "."],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

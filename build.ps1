@@ -1,7 +1,8 @@
 ﻿# -*- coding: utf-8 -*-
 # Shipment Track 一键打包脚本（Windows PowerShell）
-# 1) PyInstaller 构建 onedir
-# 2) 将默认 JSON 复制到 data 文件夹，并复制使用说明
+# 1) PyArmor 混淆授权核心
+# 2) PyInstaller 构建 onedir
+# 3) 将默认 JSON 复制到 data 文件夹，并复制使用说明
 # Chromium 始终作为外接依赖，不复制进安装目录。
 
 $ErrorActionPreference = "Stop"
@@ -9,11 +10,16 @@ Set-Location $PSScriptRoot
 
 $dist = Join-Path $PSScriptRoot "dist\Shipment Track"
 $dataDir = Join-Path $dist "data"
+$authObfuscated = Join-Path $PSScriptRoot "build\auth_obfuscated"
 
-Write-Host "=== Step 1: PyInstaller build ==="
+Write-Host "=== Step 1: obfuscate authorization core ==="
+pyarmor gen -O $authObfuscated license.py portable_auth.py
+if ($LASTEXITCODE -ne 0) { throw "PyArmor authorization obfuscation failed." }
+
+Write-Host "=== Step 2: PyInstaller build ==="
 python -m PyInstaller ShipmentTrack.spec --noconfirm --clean
 
-Write-Host "=== Step 2: copy data defaults & readme ==="
+Write-Host "=== Step 3: copy data defaults & readme ==="
 New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
 Copy-Item (Join-Path $PSScriptRoot "filename_mappings.json") -Destination $dataDir -Force
 Copy-Item (Join-Path $PSScriptRoot "delivery_status_mappings.json") -Destination $dataDir -Force

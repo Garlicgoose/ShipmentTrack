@@ -21,6 +21,13 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn('$dataDir = Join-Path $dist "data"', script)
         self.assertIn("-Destination $dataDir", script)
 
+    def test_build_obfuscates_signed_authorization_core(self):
+        script = (ROOT / "build.ps1").read_text("utf-8-sig")
+        spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
+        self.assertIn("pyarmor gen -O $authObfuscated license.py portable_auth.py", script)
+        self.assertIn('Path("build/auth_obfuscated").resolve()', spec)
+        self.assertIn("pathex=[str(auth_obfuscated), \".\"]", spec)
+
     def test_spec_includes_profile_asset_and_excludes_heavy_optional_modules(self):
         spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
         self.assertIn("assets/github_avatar.jpg", spec)
@@ -70,7 +77,7 @@ class PackagingConfigTests(unittest.TestCase):
         requirements = (ROOT / "requirements.txt").read_text("utf-8")
         for package in (
             "PySide6", "playwright", "openpyxl", "requests", "pypdf",
-            "cryptography", "pyinstaller",
+            "cryptography", "pyarmor", "pyinstaller",
         ):
             self.assertRegex(requirements, rf"(?mi)^{package}==")
         self.assertNotRegex(requirements, r"(?mi)^pandas(?:==|>=)")
