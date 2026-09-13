@@ -173,7 +173,8 @@ class FilenameMapper:
     def match(self, filename: str) -> MappingMatch:
         stem = Path(str(filename or "")).stem.strip()
         folded = stem.casefold()
-        for rule in self.rules:
+        candidates = []
+        for index, rule in enumerate(self.rules):
             if not rule.pattern or not rule.target_type:
                 continue
             if rule.match_type == "exact":
@@ -186,13 +187,17 @@ class FilenameMapper:
             else:
                 matched = rule.pattern.casefold() in folded
             if matched:
-                return MappingMatch(
-                    target_type=rule.target_type,
-                    display_type=rule.display_type,
-                    note=rule.note,
-                    pattern=rule.pattern,
-                    matched=True,
-                )
+                rank = {"contains": 1, "regex": 2, "exact": 3}[rule.match_type]
+                candidates.append((rank, len(rule.pattern), -index, rule))
+        if candidates:
+            rule = max(candidates, key=lambda item: item[:3])[3]
+            return MappingMatch(
+                target_type=rule.target_type,
+                display_type=rule.display_type,
+                note=rule.note,
+                pattern=rule.pattern,
+                matched=True,
+            )
         return MappingMatch(
             target_type="未识别",
             display_type="未识别",

@@ -69,6 +69,19 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual("special", match.display_type)
         self.assertEqual("special", match.pattern)
 
+    def test_specific_mapping_beats_generic_mpo_fallback(self):
+        mapper = FilenameMapper([
+            FilenameMappingRule("MPO", "MPO", display_type="MPO"),
+            FilenameMappingRule("MPO国外DSV自提", "MPO", display_type="DSV自提"),
+            FilenameMappingRule("MPO国外Omni自提", "MPO", display_type="Omni自提"),
+        ])
+        dsv = mapper.match("9.9MPO国外DSV自提出货—陆运出货资料.xlsx")
+        omni = mapper.match("9.10MPO国外Omni自提出货—空运(重庆)出货资料.xlsx")
+        self.assertEqual("DSV自提", dsv.display_type)
+        self.assertEqual("Omni自提", omni.display_type)
+        self.assertEqual("MPO国外DSV自提", dsv.pattern)
+        self.assertEqual("MPO国外Omni自提", omni.pattern)
+
     def test_invalid_regex_and_unmatched_filename_are_visible(self):
         mapper = FilenameMapper([FilenameMappingRule("[", "MPO", "regex")])
         match = mapper.match("9.10 unknown.xlsx")
