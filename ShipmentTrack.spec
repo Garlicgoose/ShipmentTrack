@@ -15,6 +15,7 @@ datas = [
 ]
 binaries = []
 hiddenimports = [
+    "pyarmor_runtime_000000",
     # importlib 动态加载的快递模块（PyInstaller 无法静态发现）
     "modules.dhl_module",
     "modules.dsv_module",
@@ -61,6 +62,18 @@ a.binaries = [
     entry for entry in a.binaries
     if Path(entry[0]).name.casefold() not in _foreign_icu
 ]
+
+# Analysis must inspect the plain modules to discover cryptography, then the
+# archive entries are replaced with their PyArmor-generated counterparts.
+_protected_modules = {"license", "portable_auth"}
+a.pure = type(a.pure)(
+    (
+        name,
+        str(auth_obfuscated / f"{name}.py") if name in _protected_modules else source,
+        kind,
+    )
+    for name, source, kind in a.pure
+)
 
 pyz = PYZ(a.pure)
 

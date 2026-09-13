@@ -27,6 +27,9 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("pyarmor gen -O $authObfuscated license.py portable_auth.py", script)
         self.assertIn('Path("build/auth_obfuscated").resolve()', spec)
         self.assertIn("pathex=[str(auth_obfuscated), \".\"]", spec)
+        self.assertIn('_protected_modules = {"license", "portable_auth"}', spec)
+        self.assertIn('str(auth_obfuscated / f"{name}.py")', spec)
+        self.assertIn('"pyarmor_runtime_000000"', spec)
 
     def test_spec_includes_profile_asset_and_excludes_heavy_optional_modules(self):
         spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
