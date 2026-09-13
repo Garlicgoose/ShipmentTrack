@@ -9,6 +9,7 @@
 - openpyxl：跟踪结果、检验表和 Droplist
 - pypdf：POD 抽查；FedEx 验证签名图，其他承运商验证送达字段
 - PyInstaller：Windows onedir 打包
+- cryptography：Ed25519 签名验证；PyArmor：打包时混淆授权核心
 
 ## 目录职责
 
@@ -41,7 +42,7 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 - `data/delivery_status_mappings.json`：EI、DSV 的额外严格抵达状态。
 - `data/settings.json`：界面设置；密码和 Secret 使用 Windows DPAPI 加密。
 - `data/fedex_status_cache.json`：FedEx 状态缓存。
-- `data/machine_id`、`data/license_cache`：机器标识与授权缓存。
+- `data/machine_id`、`data/authorization.cache`：机器标识与 DPAPI 授权缓存。
 
 ## Excel 输出
 

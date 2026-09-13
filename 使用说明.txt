@@ -60,11 +60,10 @@ Chromium 不在程序目录中。请单独准备 Chromium，并在设置页自�
 
 ## 授权说明（给使用者）
 
-- 程序启动时联网检查授权（GitHub 上的开关文件），关闭后无法启动
-- 如果提示 `Unable to start. Please try again.`，说明本机未获授权
-- 需要授权：首次运行后，把 `data\machine_id` 中的机器码发给管理员，
-  管理员在 GitHub 仓库 `Garlicgoose/MyWorkTool_License` 的
-  `ShipmentTrack_license.json` 中把该机器码设为 `true` 即可
+- 程序启动时验证 GitHub 上经过数字签名的共享开关文件
+- 联网关闭后，下次启动无法使用；断网缓存最多保留 24 小时
+- 需要开通时，把 `data\machine_id` 中的机器码发给管理员
+- 管理员修改并重新签名共享文件，使用者不需要安装或保存授权文件
 
 ## 常见问题
 

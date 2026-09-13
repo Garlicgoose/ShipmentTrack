@@ -56,9 +56,11 @@ Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置�
 - 首个汇总页、`Address`、默认 `Sheet1` 和空表不计入合并数量
 
 ## 授权
-- 自动联网检查 MyWorkTool_License 仓库 ShipmentTrack_license.json
-  （REFRESH_HOURS=0 每次启动检查；网络端关闭 → Unable to start 英文报错）
-- 机器标识、授权缓存、设置和业务映射统一保存在 EXE 同级的 `data` 文件夹
+- 使用 Ed25519 公钥验证 GitHub 共享授权文件，GitHub 中保存机器码摘要和开关。
+- 在线关闭授权后，下次联网启动即生效；断网只允许使用最近一次成功验证后的
+  24 小时缓存，不再使用本地截止日期授权。
+- 授权失败统一显示普通服务错误；授权核心在正式打包时由 PyArmor 混淆。
+- 管理员操作见 `docs/AUTHORIZATION.md`。
 
 ## 目录
 ```

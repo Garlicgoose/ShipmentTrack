@@ -67,6 +67,13 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("可任选一侧单独合并", readme)
         self.assertIn("`类型箱数` Sheet", readme)
         self.assertIn("至少一个文件夹", guide)
+        self.assertIn("Ed25519 公钥", readme)
+        self.assertIn("24 小时缓存", readme)
+        self.assertIn("经过数字签名", guide)
+        authorization = (ROOT / "docs" / "AUTHORIZATION.md").read_text("utf-8")
+        self.assertIn("ed25519-private.key", authorization)
+        self.assertIn("--revision 2", authorization)
+        self.assertIn("PyArmor trial/non-profits", authorization)
         self.assertNotIn("GetMachineId.exe", readme)
         self.assertNotIn("GetMachineId.exe", guide)
 
