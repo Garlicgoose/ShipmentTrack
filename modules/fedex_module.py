@@ -20,7 +20,7 @@ POD 下载条件：
 环境变量：
 - FEDEX_API_KEY
 - FEDEX_API_SECRET
-- FEDEX_ACCOUNT_NUMBER（当前 POD 请求通常不需要，保留供其他场景使用）
+- FEDEX_ACCOUNT_NUMBER（下载带签名 SPOD 时使用；未设置时默认 791310059）
 """
 
 import base64
@@ -31,6 +31,7 @@ import time
 import json
 import random
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -51,7 +52,11 @@ DOC_URL = f"{FEDEX_BASE_URL}/track/v1/trackingdocuments"
 LOCALE = "en_US"
 REQUEST_TIMEOUT_SECONDS = 40
 FEDEX_RELATED_LIMIT = 40
-OVERWRITE_EXISTING_POD = False
+OVERWRITE_EXISTING_POD = True
+FEDEX_ACCOUNT_NUMBER = os.getenv(
+    "FEDEX_ACCOUNT_NUMBER",
+    "791310059",
+).strip()
 
 # 稳定性配置
 RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
@@ -546,190 +551,145 @@ def _save_pod(
     timeout: int = REQUEST_TIMEOUT_SECONDS,
 ) -> Tuple[str, str]:
     """
-    下载 POD，返回：
+    按已验证成功的 fedex_spod_download.py 流程下载签名 SPOD：
+    1. 先用 trackingnumbers 查询当前请求运单；
+    2. 从该运单响应读取 carrierCode 和 trackingNumberUniqueId；
+    3. 在 trackingdocuments 请求中同时提交 billing accountNumber；
+    4. 解码 output.documents[0] 并保存 PDF。
 
-        (pdf_file, error)
-
-    成功：
-        ("D:/FedEx/472887355535.pdf", "")
-
-    失败：
-        ("", "错误原因")
+    返回：(pdf_file, error)
     """
-
     if not pdf_dir:
         return "", "POD directory is not set"
 
-    tracking_number = str(tracking_number).strip()
-
+    tracking_number = str(tracking_number or "").strip()
     if not tracking_number:
         return "", "Tracking number is empty"
+    if not FEDEX_ACCOUNT_NUMBER:
+        return "", "FedEx billing account number is not set"
 
     output_directory = Path(pdf_dir).expanduser().resolve()
-    output_directory.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
+    output_directory.mkdir(parents=True, exist_ok=True)
     output_file = output_directory / f"{tracking_number}.pdf"
 
-    if (
-        output_file.exists()
-        and not OVERWRITE_EXISTING_POD
-    ):
-        return str(output_file), ""
+    # 关键：不能直接复用其他候选单号的 master_piece。
+    # 必须像已测试成功的独立脚本一样，先查询当前请求号码，取得匹配的
+    # carrierCode 与 trackingNumberUniqueId。
+    exact_piece, tracking_error = _query_trackingnumbers(
+        session=session,
+        token=token,
+        tracking_number=tracking_number,
+        timeout=timeout,
+    )
+    source_piece = exact_piece or master_piece or {}
+    piece_info = source_piece.get("trackingNumberInfo") or {}
 
-    # --------------------------------------------------
-    # 使用第一版 POD 请求格式
-    # --------------------------------------------------
+    returned_number = str(piece_info.get("trackingNumber") or "").strip()
+    carrier_code = str(piece_info.get("carrierCode") or "FDXE").strip()
+    unique_id = str(piece_info.get("trackingNumberUniqueId") or "").strip()
+
+    # trackingnumbers 若返回了另一条重复号码记录，不把不匹配的 Unique ID
+    # 强行用于当前号码，以免获得无签名的普通 POD。
+    if returned_number and returned_number != tracking_number:
+        unique_id = ""
+
+    tracking_number_info: Dict[str, str] = {
+        "trackingNumber": tracking_number,
+        "carrierCode": carrier_code or "FDXE",
+    }
+    if unique_id:
+        tracking_number_info["trackingNumberUniqueId"] = unique_id
+
     payload = {
         "trackDocumentDetail": {
-            "documentType":
-                "SIGNATURE_PROOF_OF_DELIVERY",
-            "documentFormat":
-                "PDF",
+            "documentType": "SIGNATURE_PROOF_OF_DELIVERY",
+            "documentFormat": "PDF",
         },
         "trackDocumentSpecification": [
             {
-                "trackingNumberInfo": {
-                    "trackingNumber":
-                        tracking_number,
-                }
+                "trackingNumberInfo": tracking_number_info,
+                "accountNumber": FEDEX_ACCOUNT_NUMBER,
             }
-        ]
+        ],
     }
 
-    try:
+    document_headers = _api_headers(token)
+    document_headers["x-customer-transaction-id"] = str(uuid.uuid4())
 
-        response = _post_with_retry(session,
+    try:
+        response = _post_with_retry(
+            session,
             DOC_URL,
             json=payload,
-            headers=_api_headers(token),
+            headers=document_headers,
             timeout=timeout,
         )
-
     except requests.RequestException as exc:
-
-        return "", (
-            f"POD request failed: {exc}"
-        )
+        return "", f"POD request failed: {exc}"
 
     if response.status_code != 200:
-
-        return "", (
-            f"POD API HTTP {response.status_code}: "
-            f"{_extract_error_message(response)}"
-        )
+        detail = _extract_error_message(response)
+        if tracking_error:
+            detail = f"{detail}; tracking lookup: {tracking_error}"
+        return "", f"POD API HTTP {response.status_code}: {detail}"
 
     try:
-
         data = response.json()
-
     except ValueError:
+        return "", f"POD API returned invalid JSON: {response.text[:500]}"
 
-        return "", (
-            f"POD API returned invalid JSON: "
-            f"{response.text[:500]}"
-        )
-
-    documents = (
-        (data.get("output") or {})
-        .get("documents")
-        or []
-    )
-
+    output = data.get("output") or {}
+    documents = output.get("documents") or []
     if not documents:
+        return "", "POD API returned no documents. Response=" + str(data)[:1000]
 
-        return "", (
-            "POD API returned no documents. "
-            f"Response={str(data)[:1000]}"
-        )
-
-    encoded_content = ""
-
-    for document in documents:
-
-        # 第一版常见格式
-        # documents[0] = "JVBERi0xLjQ..."
-
-        if isinstance(document, str):
-
-            encoded_content = document.strip()
-
-        elif isinstance(document, dict):
-
-            encoded_content = (
-                document.get("content")
-                or document.get("document")
-                or document.get("encodedContent")
-                or document.get("encodedGraphic")
-                or document.get("documentContent")
-                or document.get("data")
-                or ""
-            )
-
-        if encoded_content:
-            break
-
+    encoded_content = _extract_document_content(documents[0])
     if not encoded_content:
-
-        first = documents[0]
-
         return "", (
             "POD document has no PDF content. "
-            f"type={type(first).__name__}"
+            f"type={type(documents[0]).__name__}"
         )
 
     try:
+        pdf_bytes = _decode_pdf_content(encoded_content)
+    except (ValueError, binascii.Error) as exc:
+        return "", f"POD decode failed: {exc}"
 
-        # 清除空格和换行
-        normalized_b64 = "".join(
-            encoded_content.split()
-        )
-
-        pdf_bytes = base64.b64decode(
-            normalized_b64,
-            validate=True,
-        )
-
-        if not pdf_bytes.startswith(b"%PDF"):
-
-            return "", (
-                "FedEx returned content "
-                "but not a PDF file"
-            )
-
-        output_file.write_bytes(pdf_bytes)
-
-    except (
-        ValueError,
-        binascii.Error,
-        OSError,
-    ) as exc:
-
-        return "", (
-            f"POD decode/save failed: {exc}"
-        )
-
-    if not output_file.exists():
-
-        return "", (
-            "POD PDF was not created"
-        )
-
-    if output_file.stat().st_size == 0:
-
+    # 使用临时文件再替换，避免写入中断留下损坏 PDF。
+    temp_file = output_file.with_suffix(".pdf.tmp")
+    try:
+        temp_file.write_bytes(pdf_bytes)
+        temp_file.replace(output_file)
+    except PermissionError as exc:
+        # PDF 正在 Edge/Adobe/WPS 中打开时，Windows 可能禁止覆盖。
+        # 不丢失本次成功下载结果，改存带时间戳的新文件。
         try:
-            output_file.unlink()
+            if temp_file.exists():
+                temp_file.unlink()
         except OSError:
             pass
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fallback_file = output_directory / f"{tracking_number}_{timestamp}.pdf"
+        try:
+            fallback_file.write_bytes(pdf_bytes)
+        except OSError as fallback_exc:
+            return "", (
+                "POD save failed: target PDF is open or locked; "
+                f"original={exc}; fallback={fallback_exc}"
+            )
+        output_file = fallback_file
+    except OSError as exc:
+        try:
+            if temp_file.exists():
+                temp_file.unlink()
+        except OSError:
+            pass
+        return "", f"POD save failed: {exc}"
 
-        return "", (
-            "POD PDF file is empty"
-        )
+    if not output_file.exists() or output_file.stat().st_size == 0:
+        return "", "POD PDF was not created or is empty"
 
     return str(output_file), ""
-
 
 def _pod_request_numbers(
     tracking_number: str,

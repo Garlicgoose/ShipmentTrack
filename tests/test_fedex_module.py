@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import base64
 from pathlib import Path
 from unittest import mock
 
@@ -160,6 +161,59 @@ class FedexBusinessRulesTests(unittest.TestCase):
                 use_cache=False,
             )
         self.assertIs(shared, live.call_args.kwargs["_session"])
+
+    def test_signed_pod_request_uses_exact_piece_and_billing_account(self):
+        response = mock.Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            "output": {
+                "documents": [base64.b64encode(b"%PDF-signed").decode("ascii")]
+            }
+        }
+        session = mock.Mock()
+        exact_piece = {
+            "trackingNumberInfo": {
+                "trackingNumber": "492670345899",
+                "carrierCode": "FDXE",
+                "trackingNumberUniqueId": "UNIQUE-ID",
+            }
+        }
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(
+                 fedex, "_query_trackingnumbers", return_value=(exact_piece, "")
+             ) as lookup, \
+             mock.patch.object(fedex, "_post_with_retry", return_value=response) as post:
+            pdf_file, error = fedex._save_pod(
+                session,
+                "492670345899",
+                "token",
+                exact_piece,
+                temp_dir,
+            )
+            saved_bytes = Path(pdf_file).read_bytes()
+
+        self.assertEqual("", error)
+        self.assertEqual(b"%PDF-signed", saved_bytes)
+        lookup.assert_called_once_with(
+            session=session,
+            token="token",
+            tracking_number="492670345899",
+            timeout=fedex.REQUEST_TIMEOUT_SECONDS,
+        )
+        payload = post.call_args.kwargs["json"]
+        specification = payload["trackDocumentSpecification"][0]
+        self.assertEqual(fedex.FEDEX_ACCOUNT_NUMBER, specification["accountNumber"])
+        self.assertEqual(
+            "UNIQUE-ID",
+            specification["trackingNumberInfo"]["trackingNumberUniqueId"],
+        )
+        self.assertEqual(
+            "SIGNATURE_PROOF_OF_DELIVERY",
+            payload["trackDocumentDetail"]["documentType"],
+        )
+        self.assertTrue(
+            post.call_args.kwargs["headers"]["x-customer-transaction-id"]
+        )
 
 
 if __name__ == "__main__":
