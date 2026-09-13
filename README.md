@@ -14,8 +14,7 @@ python main.py
 ```
 powershell -ExecutionPolicy Bypass -File build.ps1
 # 1) PyInstaller ShipmentTrack.spec（onedir，collect_all playwright）
-# 2) 生成 GetMachineId.exe
-# 3) 复制两份映射 JSON / 使用说明.txt
+# 2) 将两份默认映射 JSON 复制到 data / 复制使用说明.txt
 # 产物: dist\Shipment Track\Shipment Track.exe（整文件夹拷贝使用）
 # Chromium 由用户在设置页自动检测或手动选择 chrome.exe
 # 注意: build.ps1 必须保存为 UTF-8 with BOM（PS5.1 中文乱码问题）
@@ -37,7 +36,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 跟踪与 Excel 合并使用独立后台任务，可以同时运行；两页各自保存输出路径，
 切换页面或完成另一项任务不会清除已经生成的文件按钮。
 
-文件名映射由界面写入 `filename_mappings.json`。每条规则保存文件名关键字、
+文件名映射由界面写入 `data/filename_mappings.json`。每条规则保存文件名关键字、
 检验表原类型和用于核对的归总类别；归总类别只允许光联或 MPO。FedEx API
 Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置文件。
 
@@ -56,7 +55,7 @@ Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置�
 ## 授权
 - 自动联网检查 MyWorkTool_License 仓库 ShipmentTrack_license.json
   （REFRESH_HOURS=0 每次启动检查；网络端关闭 → Unable to start 英文报错）
-- 机器码：运行 GetMachineId.exe 获取，加到 GitHub JSON
+- 机器标识、授权缓存、设置和业务映射统一保存在 EXE 同级的 `data` 文件夹
 
 ## 目录
 ```
@@ -64,7 +63,8 @@ main.py / units.py / license.py / machine_id.py / ShipmentTrack.spec
 modules/（跟踪、设置、Excel 合并与核对）
 ui/（PySide6 原生界面） / assets/（图标与本地头像）
 docs/ARCHITECTURE.md（框架与目录职责）
-filename_mappings.json（由设置页维护）
-delivery_status_mappings.json（EI/DSV 额外抵达状态）
+data/filename_mappings.json（由设置页维护）
+data/delivery_status_mappings.json（EI/DSV 额外抵达状态）
+data/settings.json（界面设置，首次保存后生成）
 requirements.txt（经过打包验证的依赖版本）
 ```

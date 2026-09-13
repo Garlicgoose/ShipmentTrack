@@ -32,7 +32,7 @@
      外接 Chromium 的 chrome.exe
    - 勾选「最小化」：浏览器弹出后自动最小化（后台运行，不挡视线）
    - 文件名映射：添加文件名关键字、检验表类型、归总类别和备注，保存后
-     自动写入 filename_mappings.json；归总类别只能填写光联或 MPO
+     自动写入 data\filename_mappings.json；归总类别只能填写光联或 MPO
    - 货代抵达状态：可为 EI、DSV 添加额外完整状态字段，例如“交给其他
      清关人”。清理空格和末尾标点后仍要求完整匹配
 3. 在「跟踪」页面选择输入 Excel 和输出文件夹，点击「开始查询」
@@ -48,9 +48,9 @@
 ```
 Shipment Track\
 ├── Shipment Track.exe    主程序
-├── GetMachineId.exe      查看本机机器码（用于授权）
-├── filename_mappings.json 文件名映射（设置页自动维护）
-├── data\                 授权缓存等（自动生成）
+├── data\                 设置、映射、缓存和机器标识
+│   ├── filename_mappings.json
+│   └── delivery_status_mappings.json
 └── 使用说明.txt          本文件
 ```
 
@@ -61,7 +61,7 @@ Chromium 不在程序目录中。请单独准备 Chromium，并在设置页自�
 
 - 程序启动时联网检查授权（GitHub 上的开关文件），关闭后无法启动
 - 如果提示 `Unable to start. Please try again.`，说明本机未获授权
-- 需要授权：运行 `GetMachineId.exe`，把显示的机器码发给管理员，
+- 需要授权：首次运行后，把 `data\machine_id` 中的机器码发给管理员，
   管理员在 GitHub 仓库 `Garlicgoose/MyWorkTool_License` 的
   `ShipmentTrack_license.json` 中把该机器码设为 `true` 即可
 

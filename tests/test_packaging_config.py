@@ -14,6 +14,13 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("外接 Chromium", script)
         self.assertIn("delivery_status_mappings.json", script)
 
+    def test_build_uses_data_folder_without_machine_id_utility(self):
+        script = (ROOT / "build.ps1").read_text("utf-8-sig")
+        self.assertNotIn("GetMachineId", script)
+        self.assertNotIn('"machine_id.py"', script)
+        self.assertIn('$dataDir = Join-Path $dist "data"', script)
+        self.assertIn("-Destination $dataDir", script)
+
     def test_spec_includes_profile_asset_and_excludes_heavy_optional_modules(self):
         spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
         self.assertIn("assets/github_avatar.jpg", spec)
@@ -44,6 +51,9 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("跟踪与 Excel 合并使用独立后台任务", readme)
         self.assertIn("默认 `Sheet1` 和空表不计入合并数量", readme)
         self.assertIn("delivery_status_mappings.json", readme)
+        self.assertIn("data/settings.json", readme)
+        self.assertNotIn("GetMachineId.exe", readme)
+        self.assertNotIn("GetMachineId.exe", guide)
 
     def test_packaged_app_has_offline_smoke_mode(self):
         main_source = (ROOT / "main.py").read_text("utf-8")
@@ -59,6 +69,7 @@ class PackagingConfigTests(unittest.TestCase):
 
     def test_runtime_status_cache_is_not_committed(self):
         ignore = (ROOT / ".gitignore").read_text("utf-8")
+        self.assertIn("data/", ignore)
         self.assertIn("modules/fedex_status_cache.json", ignore)
 
 

@@ -21,7 +21,8 @@ tests/      离线单元测试、集成测试和打包配置测试
 ui/         PySide6 原生界面、控件、样式和后台线程
 ```
 
-根目录仅保留程序入口、授权、构建配置、依赖、用户说明和两个可编辑映射 JSON。
+根目录仅保留程序入口、授权、构建配置、依赖、用户说明和默认映射模板。
+打包运行时的设置、映射、缓存和机器标识统一存放于 EXE 同级的 `data/`。
 
 ## 运行流程
 
@@ -36,9 +37,11 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 
 ## 映射配置
 
-- `filename_mappings.json`：检验表文件名关键字、详细类型及光联/MPO 归总类别。
-- `delivery_status_mappings.json`：EI、DSV 的额外严格抵达状态。
-- `settings.json`：界面设置；密码和 Secret 使用 Windows DPAPI 加密。
+- `data/filename_mappings.json`：检验表文件名关键字、详细类型及光联/MPO 归总类别。
+- `data/delivery_status_mappings.json`：EI、DSV 的额外严格抵达状态。
+- `data/settings.json`：界面设置；密码和 Secret 使用 Windows DPAPI 加密。
+- `data/fedex_status_cache.json`：FedEx 状态缓存。
+- `data/machine_id`、`data/license_cache`：机器标识与授权缓存。
 
 ## Excel 输出
 
