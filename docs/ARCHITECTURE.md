@@ -7,7 +7,7 @@
 - requests：FedEx 官方 API
 - Playwright：DHL、UPS、EI、DSV，驱动外接 Chromium
 - openpyxl：跟踪结果、检验表和 Droplist
-- pypdf：非 FedEx POD 抽查
+- pypdf：POD 抽查；FedEx 验证签名图，其他承运商验证送达字段
 - PyInstaller：Windows onedir 打包
 
 ## 目录职责
@@ -30,7 +30,9 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 3. `modules/tracking_runner.py` 清洗运单、复用承运商会话并实时回传结果。
 4. FedEx 调用官方 API；其他承运商由 `TrackingCarrierSession` 使用外接 Chromium。
 5. 只有抵达货件允许下载 POD；只查状态模式不会下载 POD。
-6. 非 FedEx POD 完成后随机抽查 5%，结果写入 `pod_audit.xlsx`。
+6. 所有承运商 POD 完成后随机抽查 5%。FedEx 检查签名，其他承运商检查送达
+   字段，结果写入 `pod_audit.xlsx`。
+7. 跟踪与 Excel 合并由两个独立 QThread 执行，输出路径也分别保存。
 
 ## 映射配置
 
@@ -42,6 +44,7 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 
 - 跟踪：`tracking_result.xlsx`、`tracking_list_cleaned_sorted.xlsx`、可选 `pod_audit.xlsx`。
 - 合并：`合并检验表.xlsx` 和 `合并Droplist.xlsx`。
+- Droplist 明细页按业务表头识别，跳过首个汇总页、Address、Sheet1 和空表。
 - 检验表详细类型不会被光联/MPO 覆盖；光联/MPO 只用于核对汇总。
 
 ## 打包

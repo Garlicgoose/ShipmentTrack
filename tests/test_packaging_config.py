@@ -40,7 +40,9 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("Chromium 不在程序目录中", guide)
         self.assertIn("合并检验表.xlsx", readme)
         self.assertIn("归总类别只允许光联或 MPO", readme)
-        self.assertIn("FedEx 不抽查", readme)
+        self.assertIn("FedEx 检查运单号和", readme)
+        self.assertIn("跟踪与 Excel 合并使用独立后台任务", readme)
+        self.assertIn("默认 `Sheet1` 和空表不计入合并数量", readme)
         self.assertIn("delivery_status_mappings.json", readme)
 
     def test_packaged_app_has_offline_smoke_mode(self):
