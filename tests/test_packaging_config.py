@@ -24,11 +24,18 @@ class PackagingConfigTests(unittest.TestCase):
     def test_build_obfuscates_signed_authorization_core(self):
         script = (ROOT / "build.ps1").read_text("utf-8-sig")
         spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
-        self.assertIn("pyarmor gen -O $authObfuscated license.py portable_auth.py", script)
+        self.assertIn("python_modules\\authorization\\authorization", script)
+        self.assertIn("pyarmor gen -O $authObfuscated -r license.py $authorizationPackage", script)
+        self.assertIn('$authRuntime = Join-Path $PSScriptRoot "build\\auth_runtime"', script)
+        self.assertIn('"pyarmor_runtime_000000"', script)
         self.assertIn('Path("build/auth_obfuscated").resolve()', spec)
-        self.assertIn("pathex=[str(auth_obfuscated), \".\"]", spec)
-        self.assertIn('_protected_modules = {"license", "portable_auth"}', spec)
-        self.assertIn('str(auth_obfuscated / f"{name}.py")', spec)
+        self.assertIn('Path("build/auth_runtime").resolve()', spec)
+        self.assertIn('Path("../../python_modules/authorization").resolve()', spec)
+        self.assertIn(
+            'pathex=[str(auth_runtime), str(authorization_source), "."]', spec
+        )
+        self.assertIn('name.startswith("authorization.")', spec)
+        self.assertIn('auth_obfuscated / "authorization"', spec)
         self.assertIn('"pyarmor_runtime_000000"', spec)
 
     def test_spec_includes_profile_asset_and_excludes_heavy_optional_modules(self):

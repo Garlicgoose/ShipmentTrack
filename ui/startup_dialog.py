@@ -55,9 +55,8 @@ class StartupDialog(QDialog):
         self._worker.start()
 
     def _do_check(self):
-        import machine_id
         import license as license_mod
-        mid = machine_id.get_machine_id()
+        mid = license_mod.get_current_machine_id()
         ok, _mode, err = license_mod.verify(mid)
         if not ok:
             raise RuntimeError(err or "Unable to start. Please try again.")

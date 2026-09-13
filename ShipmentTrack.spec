@@ -7,6 +7,8 @@ Playwright 驱动仍需随程序发布，但 Chromium 浏览器本体不进入�
 from pathlib import Path
 
 auth_obfuscated = Path("build/auth_obfuscated").resolve()
+auth_runtime = Path("build/auth_runtime").resolve()
+authorization_source = Path("../../python_modules/authorization").resolve()
 
 datas = [
     ("assets/app_icon.ico", "assets"),
@@ -28,7 +30,9 @@ hiddenimports = [
 a = Analysis(
     ["main.py"],
     # Prefer the PyArmor-generated authorization modules over their plain source.
-    pathex=[str(auth_obfuscated), "."],
+    # Analyze the installed plain authorization package to discover imports;
+    # only the separate PyArmor runtime is added to the analysis path.
+    pathex=[str(auth_runtime), str(authorization_source), "."],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -65,11 +69,21 @@ a.binaries = [
 
 # Analysis must inspect the plain modules to discover cryptography, then the
 # archive entries are replaced with their PyArmor-generated counterparts.
-_protected_modules = {"license", "portable_auth"}
+def _protected_source(name):
+    if name == "license":
+        return auth_obfuscated / "license.py"
+    if name == "authorization":
+        return auth_obfuscated / "authorization" / "__init__.py"
+    if name.startswith("authorization."):
+        relative = Path(*name.split(".")).with_suffix(".py")
+        return auth_obfuscated / relative
+    return None
+
+
 a.pure = type(a.pure)(
     (
         name,
-        str(auth_obfuscated / f"{name}.py") if name in _protected_modules else source,
+        str(_protected_source(name) or source),
         kind,
     )
     for name, source, kind in a.pure

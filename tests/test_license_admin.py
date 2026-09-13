@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from portable_auth import machine_digest, payload_allows_machine, verify_signed_manifest
-from scripts.license_admin import generate_keys, sign_file
+from authorization import machine_digest, payload_allows_machine, verify_signed_manifest
+from authorization.admin import generate_keys, sign_file
 
 
 class LicenseAdminTests(unittest.TestCase):

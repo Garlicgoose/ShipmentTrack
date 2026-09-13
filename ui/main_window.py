@@ -831,9 +831,10 @@ class MainWindow(QMainWindow):
     def _authorization_ready(self):
         """Fast local recheck before either protected workflow starts."""
         import license as license_mod
-        import machine_id
 
-        ok, _mode, error = license_mod.revalidate_session(machine_id.get_machine_id())
+        ok, _mode, error = license_mod.revalidate_session(
+            license_mod.get_current_machine_id()
+        )
         if not ok:
             QMessageBox.critical(
                 self,

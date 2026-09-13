@@ -96,8 +96,9 @@ def main():
     # Verify the signed in-memory document again after the startup dialog and
     # before constructing the main window.
     import license as license_mod
-    import machine_id
-    ok, _mode, error = license_mod.revalidate_session(machine_id.get_machine_id())
+    ok, _mode, error = license_mod.revalidate_session(
+        license_mod.get_current_machine_id()
+    )
     if not ok:
         QMessageBox.critical(None, "Shipment Track", error)
         return 1

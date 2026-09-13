@@ -2,8 +2,8 @@
 """ShipmentTrack adapter for the reusable signed authorization module."""
 from pathlib import Path
 
-import machine_id
-from portable_auth import AuthConfig, SignedLicenseVerifier
+from authorization import AuthConfig, SignedLicenseVerifier, get_machine_id
+from units import get_data_path
 
 
 # All desktop programs can reuse this URL and public key. Keep the matching
@@ -13,7 +13,8 @@ LICENSE_URL = (
     "MyWorkTool_License/main/ShipmentTrack_license.json"
 )
 PUBLIC_KEY_B64 = "F7jrPPnCNArA2bVatJ0NM6mMS1pazdkKgQCf/6h2QR0="
-CACHE_FILE = Path(machine_id.DATA_DIR) / "authorization.cache"
+DATA_DIR = get_data_path()
+CACHE_FILE = Path(DATA_DIR) / "authorization.cache"
 NEUTRAL_ERROR = "A required service is unavailable. Please try again later."
 
 
@@ -29,6 +30,10 @@ def _make_verifier(url: str = LICENSE_URL) -> SignedLicenseVerifier:
 
 
 _verifier = _make_verifier()
+
+
+def get_current_machine_id() -> str:
+    return get_machine_id(DATA_DIR)
 
 
 def verify(machine_code: str, url=None):

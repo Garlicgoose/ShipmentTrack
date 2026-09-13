@@ -11,10 +11,15 @@ Set-Location $PSScriptRoot
 $dist = Join-Path $PSScriptRoot "dist\Shipment Track"
 $dataDir = Join-Path $dist "data"
 $authObfuscated = Join-Path $PSScriptRoot "build\auth_obfuscated"
+$authRuntime = Join-Path $PSScriptRoot "build\auth_runtime"
+$authorizationPackage = Resolve-Path (Join-Path $PSScriptRoot "..\..\python_modules\authorization\authorization")
 
 Write-Host "=== Step 1: obfuscate authorization core ==="
-pyarmor gen -O $authObfuscated license.py portable_auth.py
+pyarmor gen -O $authObfuscated -r license.py $authorizationPackage
 if ($LASTEXITCODE -ne 0) { throw "PyArmor authorization obfuscation failed." }
+New-Item -ItemType Directory -Path $authRuntime -Force | Out-Null
+Copy-Item (Join-Path $authObfuscated "pyarmor_runtime_000000") `
+    -Destination $authRuntime -Recurse -Force
 
 Write-Host "=== Step 2: PyInstaller build ==="
 python -m PyInstaller ShipmentTrack.spec --noconfirm --clean

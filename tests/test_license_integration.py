@@ -3,7 +3,7 @@ from unittest import mock
 from pathlib import Path
 
 import license
-from portable_auth import VerificationResult
+from authorization import VerificationResult
 
 
 class LicenseIntegrationTests(unittest.TestCase):
@@ -35,6 +35,13 @@ class LicenseIntegrationTests(unittest.TestCase):
         self.assertIn("license_mod.revalidate_session", main_source)
         self.assertEqual(2, ui_source.count("if not self._authorization_ready():"))
         self.assertIn("license_mod.revalidate_session", ui_source)
+
+    def test_machine_id_comes_from_shared_authorization_package(self):
+        source = Path("license.py").read_text("utf-8")
+        self.assertIn("from authorization import", source)
+        self.assertIn("get_machine_id(DATA_DIR)", source)
+        self.assertFalse(Path("machine_id.py").exists())
+        self.assertFalse(Path("portable_auth.py").exists())
 
 
 if __name__ == "__main__":
