@@ -2,7 +2,7 @@
 """ShipmentTrack 原生主窗口。"""
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QUrl
+from PySide6.QtCore import QEasingCurve, QElapsedTimer, QPropertyAnimation, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -65,7 +65,14 @@ class MainWindow(QMainWindow):
         self._tracking_output_paths = {}
         self._excel_output_paths = {}
         self._tracking_run_output_dir = None
-        self._tracking_counts = {"total": 0, "delivered": 0, "transit": 0, "attention": 0}
+        self._tracking_counts = {
+            "total": 0, "delivered": 0, "transit": 0, "attention": 0, "pod": 0
+        }
+        self._tracking_elapsed = QElapsedTimer()
+        self._tracking_timer = QTimer(self)
+        self._tracking_timer.setInterval(500)
+        self._tracking_timer.timeout.connect(self._update_tracking_elapsed)
+        self._pod_download_enabled = True
         self._build_ui()
 
     def _build_ui(self):
@@ -169,34 +176,34 @@ class MainWindow(QMainWindow):
         ring_text.setSpacing(3)
         ring_title = QLabel("送达进度")
         ring_title.setObjectName("sectionTitle")
-        ring_note = QLabel("绿色圆环表示当前已送达比例")
-        ring_note.setObjectName("muted")
+        self.overview_state_label = QLabel("等待查询")
+        self.overview_state_label.setObjectName("muted")
         ring_text.addWidget(ring_title)
-        ring_text.addWidget(ring_note)
+        ring_text.addWidget(self.overview_state_label)
         overview_layout.addLayout(ring_text)
         overview_layout.addSpacing(16)
         separator = QFrame()
         separator.setFrameShape(QFrame.VLine)
         separator.setStyleSheet("color:#DDE6ED;")
         overview_layout.addWidget(separator)
-        current = QVBoxLayout()
-        current.setSpacing(3)
-        current_title = QLabel("当前处理")
-        current_title.setObjectName("muted")
-        self.current_task_label = QLabel("等待开始")
-        self.current_task_label.setObjectName("sectionTitle")
-        current.addWidget(current_title)
-        current.addWidget(self.current_task_label)
-        overview_layout.addLayout(current, 1)
-        mode = QVBoxLayout()
-        mode.setSpacing(3)
-        mode_title = QLabel("查询范围")
-        mode_title.setObjectName("muted")
-        self.current_mode_label = QLabel("FedEx · DHL · UPS · EI · DSV")
-        self.current_mode_label.setObjectName("sectionTitle")
-        mode.addWidget(mode_title)
-        mode.addWidget(self.current_mode_label)
-        overview_layout.addLayout(mode, 2)
+        elapsed = QVBoxLayout()
+        elapsed.setSpacing(3)
+        elapsed_title = QLabel("用时")
+        elapsed_title.setObjectName("muted")
+        self.elapsed_label = QLabel("00:00")
+        self.elapsed_label.setObjectName("sectionTitle")
+        elapsed.addWidget(elapsed_title)
+        elapsed.addWidget(self.elapsed_label)
+        overview_layout.addLayout(elapsed, 1)
+        pod_summary = QVBoxLayout()
+        pod_summary.setSpacing(3)
+        pod_title = QLabel("本次 POD")
+        pod_title.setObjectName("muted")
+        self.pod_count_label = QLabel("等待生成")
+        self.pod_count_label.setObjectName("sectionTitle")
+        pod_summary.addWidget(pod_title)
+        pod_summary.addWidget(self.pod_count_label)
+        overview_layout.addLayout(pod_summary, 2)
         layout.addWidget(overview)
 
         query_card = QFrame()
@@ -486,11 +493,16 @@ class MainWindow(QMainWindow):
         ):
             button.set_path("")
         self._tracking_output_paths = {}
-        self._tracking_counts = {"total": 0, "delivered": 0, "transit": 0, "attention": 0}
+        self._tracking_counts = {
+            "total": 0, "delivered": 0, "transit": 0, "attention": 0, "pod": 0
+        }
         self._update_tracking_stats()
-        self.current_task_label.setText(
-            "准备查询 · POD" if self.pod_switch.isChecked() else "准备查询 · 仅状态"
-        )
+        self._pod_download_enabled = self.pod_switch.isChecked()
+        self.overview_state_label.setText("正在查询")
+        self.elapsed_label.setText("00:00")
+        self.pod_count_label.setText("等待生成" if self._pod_download_enabled else "未启用")
+        self._tracking_elapsed.start()
+        self._tracking_timer.start()
         self._set_tracking_running(True)
         self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 0)
 
@@ -549,6 +561,9 @@ class MainWindow(QMainWindow):
         pod_item.setData(Qt.UserRole, pod_path if pod_exists else "")
         pod_item.setForeground(QColor("#21A366" if pod_exists else "#AAB6BF"))
         pod_item.setToolTip("点击打开 POD" if pod_exists else "没有 POD")
+        if pod_exists:
+            self._tracking_counts["pod"] += 1
+            self.pod_count_label.setText(f"{self._tracking_counts['pod']} 份")
 
         status = str(result.get("状态", "")).casefold()
         remark = str(result.get("备注", ""))
@@ -568,9 +583,6 @@ class MainWindow(QMainWindow):
             "attention": QColor("#FFF4DD"),
         }[bucket]
         self._tracking_counts[bucket] += 1
-        self.current_task_label.setText(
-            f"{result.get('快递公司', '')} · {result.get('状态', '')}"
-        )
         self.tracking_table.item(row, 0).setData(Qt.UserRole, bucket)
         self.tracking_table.item(row, 2).setForeground(color)
         self.tracking_table.item(row, 2).setBackground(status_background)
@@ -635,12 +647,27 @@ class MainWindow(QMainWindow):
         self.pod_switch.setEnabled(not running)
         self.run_button.setText("查询中…" if running else "开始查询")
 
+    def _update_tracking_elapsed(self):
+        if not self._tracking_elapsed.isValid():
+            return
+        seconds = max(0, self._tracking_elapsed.elapsed() // 1000)
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        self.elapsed_label.setText(
+            f"{hours:d}:{minutes:02d}:{seconds:02d}"
+            if hours else f"{minutes:02d}:{seconds:02d}"
+        )
+
     def _tracking_finished(self, ok, error):
+        self._tracking_timer.stop()
+        self._update_tracking_elapsed()
         self._set_tracking_running(False)
         if ok:
             self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 100)
             self._show_status("查询完成")
-            self.current_task_label.setText("查询完成")
+            self.overview_state_label.setText("查询完成")
+            if self._pod_download_enabled and not self._tracking_counts["pod"]:
+                self.pod_count_label.setText("0 份")
             output_dir = self._tracking_run_output_dir or Path(
                 self.tracking_output.value()
             ).expanduser().absolute()
@@ -652,7 +679,7 @@ class MainWindow(QMainWindow):
             self._refresh_output_buttons(0)
         else:
             self._show_status("查询失败")
-            self.current_task_label.setText("查询失败")
+            self.overview_state_label.setText("查询失败")
             QMessageBox.critical(self, "ShipmentTrack", error or "查询失败")
         self._tracking_worker = None
         self._tracking_run_output_dir = None

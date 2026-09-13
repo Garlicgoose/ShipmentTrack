@@ -87,6 +87,30 @@ class NativeUiTests(unittest.TestCase):
         self.assertFalse(self.window.tracking_table.isRowHidden(0))
         self.assertTrue(self.window.tracking_table.isRowHidden(1))
         self.assertTrue(self.window.pod_switch.isChecked())
+        labels = [label.text() for label in self.window.findChildren(QLabel)]
+        self.assertNotIn("绿色圆环表示当前已送达比例", labels)
+        self.assertNotIn("当前处理", labels)
+        self.assertNotIn("查询范围", labels)
+        self.assertIn("用时", labels)
+        self.assertIn("本次 POD", labels)
+
+    def test_tracking_overview_counts_pods_and_formats_elapsed_time(self):
+        pdf = Path(self.temp_dir.name) / "signed.pdf"
+        pdf.write_bytes(b"%PDF-test")
+        self.window._tracking_counts = {
+            "total": 0, "delivered": 0, "transit": 0, "attention": 0, "pod": 0
+        }
+        self.window._append_tracking_result({
+            "运单号": "123",
+            "快递公司": "FedEx",
+            "状态": "Delivered",
+            "POD文件": str(pdf),
+        })
+        self.assertEqual("1 份", self.window.pod_count_label.text())
+        with mock.patch.object(self.window._tracking_elapsed, "isValid", return_value=True), \
+             mock.patch.object(self.window._tracking_elapsed, "elapsed", return_value=65_000):
+            self.window._update_tracking_elapsed()
+        self.assertEqual("01:05", self.window.elapsed_label.text())
 
     def test_pod_green_dot_opens_local_file(self):
         pdf = Path(self.temp_dir.name) / "pod.pdf"
