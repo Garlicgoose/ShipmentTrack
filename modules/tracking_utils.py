@@ -17,7 +17,7 @@ TRACKING_NUMBER_COL_INDEX = 1
 
 TRACKING_OUTPUT_COLUMNS = [
     "运单号", "快递公司", "状态", "抵达时间", "用时(秒)",
-    "POD文件", "POD抽查", "备注",
+    "POD文件", "POD详情文件", "POD抽查", "备注",
 ]
 
 # FedEx 关联运单上限：API 最多只返回 40 条（含主单自身）
@@ -64,7 +64,7 @@ TRACKING_CARRIER_CONFIG = {
         "pdf_subdir": "UPS",
         "locale": "en-US",
     },
-    # FedEx 走官方 API（requests），不需要 Playwright 浏览器
+    # FedEx 状态走官方 API；已送达网页 POD 由真实 Edge 另行打印。
     "FedEx": {
         "module": "modules.fedex_module",
         "query_func": "query_fedex_one",

@@ -68,6 +68,7 @@ def main():
                 "modules.ei_module",
                 "modules.ups_module",
                 "modules.fedex_module",
+                "modules.fedex_web_pod",
             ):
                 importlib.import_module(module_name)
             from ui.main_window import PROFILE_AVATAR

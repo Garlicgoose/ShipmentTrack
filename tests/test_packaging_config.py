@@ -42,6 +42,7 @@ class PackagingConfigTests(unittest.TestCase):
         spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
         self.assertIn("assets/github_avatar.jpg", spec)
         self.assertIn('"modules.dhl_module"', spec)
+        self.assertIn('"modules.fedex_web_pod"', spec)
         for module in ("pandas", "scipy", "pyarrow", "PySide6.QtWebEngineWidgets"):
             self.assertIn(f'"{module}"', spec)
         self.assertNotIn('"cryptography"', spec)
@@ -64,6 +65,9 @@ class PackagingConfigTests(unittest.TestCase):
         guide = (ROOT / "使用说明.txt").read_text("utf-8")
         self.assertIn("Chromium 外接", readme)
         self.assertIn("Chromium 不在程序目录中", guide)
+        self.assertIn("ShipmentTrack v1.0", readme)
+        self.assertIn("真实 Microsoft Edge", readme)
+        self.assertIn("随机抽取 20%", readme)
         self.assertIn("合并检验表.xlsx", readme)
         self.assertIn("归总类别只允许光联或 MPO", readme)
         self.assertIn("FedEx 检查运单号和", readme)
@@ -92,6 +96,7 @@ class PackagingConfigTests(unittest.TestCase):
         main_source = (ROOT / "main.py").read_text("utf-8")
         self.assertIn('"--smoke-test"', main_source)
         self.assertIn('"modules.pod_audit"', main_source)
+        self.assertIn('"modules.fedex_web_pod"', main_source)
         self.assertIn('"modules.excel_reconcile"', main_source)
 
     def test_dependencies_are_pinned_without_pandas(self):

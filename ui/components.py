@@ -154,13 +154,13 @@ class ClickableFrame(QFrame):
 
 
 class ProfilePopup(QDialog):
-    def __init__(self, avatar_path, name, parent=None):
+    def __init__(self, avatar_path, name, version="", features=(), parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
         self.setObjectName("profilePopup")
-        self.setFixedSize(180, 128)
+        self.setFixedSize(310, 244)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(9)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(7)
         avatar = QLabel()
         avatar.setAlignment(Qt.AlignCenter)
         avatar.setPixmap(circular_pixmap(avatar_path, 64))
@@ -169,6 +169,20 @@ class ProfilePopup(QDialog):
         label.setAlignment(Qt.AlignCenter)
         layout.addWidget(avatar)
         layout.addWidget(label)
+        if version:
+            version_label = QLabel(version)
+            version_label.setObjectName("popupVersion")
+            version_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(version_label)
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setObjectName("popupSeparator")
+        layout.addWidget(separator)
+        for feature in features:
+            feature_label = QLabel(f"•  {feature}")
+            feature_label.setObjectName("popupFeature")
+            feature_label.setWordWrap(True)
+            layout.addWidget(feature_label)
 
 
 class OpenFileButton(QPushButton):

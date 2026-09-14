@@ -24,6 +24,7 @@ hiddenimports = [
     "modules.ei_module",
     "modules.ups_module",
     "modules.fedex_module",
+    "modules.fedex_web_pod",
     "modules.excel_reconcile",
 ]
 

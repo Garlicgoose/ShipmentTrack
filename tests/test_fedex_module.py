@@ -1,6 +1,5 @@
 import tempfile
 import unittest
-import base64
 from pathlib import Path
 from unittest import mock
 
@@ -31,8 +30,7 @@ class FedexBusinessRulesTests(unittest.TestCase):
         main = main or piece("MASTER")
         session = mock.Mock()
         with mock.patch.object(fedex, "_query_trackingnumbers", return_value=(main, "")), \
-             mock.patch.object(fedex, "_query_assoc", return_value=(associated, "")), \
-             mock.patch.object(fedex, "_download_pod_to_result") as download:
+             mock.patch.object(fedex, "_query_assoc", return_value=(associated, "")):
             result = fedex._query_fedex_one_live(
                 "MASTER",
                 api_key="key",
@@ -42,62 +40,44 @@ class FedexBusinessRulesTests(unittest.TestCase):
                 _session=session,
                 _token="token",
             )
-        return result, download
+        return result
 
     def test_single_shipment_uses_main_status(self):
         main = piece("MASTER", "IT", "In transit")
-        result, download = self.query_live([piece("MASTER")], main=main)
+        result = self.query_live([piece("MASTER")], main=main)
         self.assertEqual("In transit", result["status"])
         self.assertEqual("", result["is_delivered"])
-        download.assert_not_called()
 
     def test_two_to_thirty_nine_require_every_piece_delivered(self):
         all_delivered = [piece(f"P{i}") for i in range(6)]
-        result, download = self.query_live(all_delivered)
+        result = self.query_live(all_delivered)
         self.assertEqual("Delivered", result["status"])
         self.assertEqual("Y", result["is_delivered"])
         self.assertNotIn("40", result["flag"])
-        download.assert_called_once()
 
         partial = all_delivered[:-1] + [piece("P5", "IT", "In transit")]
-        result, download = self.query_live(partial)
+        result = self.query_live(partial)
         self.assertEqual("In transit", result["status"])
         self.assertEqual("", result["is_delivered"])
         self.assertIn("P5=In transit", result["flag"])
-        download.assert_not_called()
 
     def test_forty_returned_pieces_require_manual_review(self):
         associated = [piece(f"P{i:02}") for i in range(40)]
-        result, download = self.query_live(associated)
+        result = self.query_live(associated)
         self.assertEqual("Delivered", result["status"])
         self.assertEqual("Y", result["is_delivered"])
         self.assertIn("40", result["flag"])
         self.assertIn("人工复核", result["flag"])
-        download.assert_called_once()
 
     def test_undelivered_piece_never_downloads_pod(self):
         associated = [piece(f"P{i:02}") for i in range(39)]
         associated.append(piece("P39", "OD", "Out for delivery"))
-        result, download = self.query_live(associated)
+        result = self.query_live(associated)
         self.assertNotEqual("Y", result["is_delivered"])
-        download.assert_not_called()
 
     def test_status_only_never_downloads_pod(self):
-        result, download = self.query_live([piece("P1"), piece("P2")], save_pdf=False)
+        result = self.query_live([piece("P1"), piece("P2")], save_pdf=False)
         self.assertEqual("Y", result["is_delivered"])
-        download.assert_not_called()
-
-    def test_pod_numbers_prefer_master_and_deduplicate(self):
-        master = piece("MASTER")
-        child = piece("CHILD")
-        self.assertEqual(
-            ["MASTER", "CHILD"],
-            fedex._pod_request_numbers("CHILD", child, master),
-        )
-        self.assertEqual(
-            ["MASTER"],
-            fedex._pod_request_numbers("MASTER", master, master),
-        )
 
     def test_temporary_failure_cache_fallback(self):
         failed = {
@@ -117,6 +97,18 @@ class FedexBusinessRulesTests(unittest.TestCase):
         self.assertTrue(merged["from_cache"])
         self.assertEqual("Delivered", merged["status"])
         self.assertIn("429", merged["error"])
+
+    def test_old_cached_official_pod_path_is_not_reused(self):
+        failed = {
+            "status": "", "is_delivered": "", "arrival_time": "",
+            "pdf_file": "", "error": "tracking API HTTP 429", "flag": "",
+        }
+        cached = {
+            "status": "Delivered", "is_delivered": "Y",
+            "pdf_file": r"C:\old\official-pod.pdf",
+        }
+        merged = fedex._apply_cached_status(failed, cached)
+        self.assertEqual("", merged["pdf_file"])
 
     def test_batch_deduplicates_and_reuses_token(self):
         calls = []
@@ -166,58 +158,14 @@ class FedexBusinessRulesTests(unittest.TestCase):
             )
         self.assertIs(shared, live.call_args.kwargs["_session"])
 
-    def test_signed_pod_request_uses_exact_piece_and_billing_account(self):
-        response = mock.Mock()
-        response.status_code = 200
-        response.json.return_value = {
-            "output": {
-                "documents": [base64.b64encode(b"%PDF-signed").decode("ascii")]
-            }
-        }
+    def test_official_pod_request_is_disabled_before_network(self):
         session = mock.Mock()
-        exact_piece = {
-            "trackingNumberInfo": {
-                "trackingNumber": "492670345899",
-                "carrierCode": "FDXE",
-                "trackingNumberUniqueId": "UNIQUE-ID",
-            }
-        }
-        with tempfile.TemporaryDirectory() as temp_dir, \
-             mock.patch.object(
-                 fedex, "_query_trackingnumbers", return_value=(exact_piece, "")
-             ) as lookup, \
-             mock.patch.object(fedex, "_post_with_retry", return_value=response) as post:
-            pdf_file, error = fedex._save_pod(
-                session,
-                "492670345899",
-                "token",
-                exact_piece,
-                temp_dir,
-            )
-            saved_bytes = Path(pdf_file).read_bytes()
-
-        self.assertEqual("", error)
-        self.assertEqual(b"%PDF-signed", saved_bytes)
-        lookup.assert_called_once_with(
-            session=session,
-            token="token",
-            tracking_number="492670345899",
-            timeout=fedex.REQUEST_TIMEOUT_SECONDS,
+        pdf_file, error = fedex._save_pod(
+            session, "492670345899", "token", {}, "unused"
         )
-        payload = post.call_args.kwargs["json"]
-        specification = payload["trackDocumentSpecification"][0]
-        self.assertEqual(fedex.FEDEX_ACCOUNT_NUMBER, specification["accountNumber"])
-        self.assertEqual(
-            "UNIQUE-ID",
-            specification["trackingNumberInfo"]["trackingNumberUniqueId"],
-        )
-        self.assertEqual(
-            "SIGNATURE_PROOF_OF_DELIVERY",
-            payload["trackDocumentDetail"]["documentType"],
-        )
-        self.assertTrue(
-            post.call_args.kwargs["headers"]["x-customer-transaction-id"]
-        )
+        self.assertEqual("", pdf_file)
+        self.assertIn("官方POD接口已停用", error)
+        session.post.assert_not_called()
 
 
 if __name__ == "__main__":

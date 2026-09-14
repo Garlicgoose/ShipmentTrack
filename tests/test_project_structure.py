@@ -15,6 +15,7 @@ class ProjectStructureTests(unittest.TestCase):
             "modules/tracking_runner.py",
             "modules/excel_reconcile.py",
             "modules/pod_audit.py",
+            "modules/fedex_web_pod.py",
         )
         for relative in expected:
             self.assertTrue((ROOT / relative).is_file(), relative)

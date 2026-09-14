@@ -1,4 +1,4 @@
-# ShipmentTrack v0.9
+# ShipmentTrack v1.0
 
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
@@ -23,8 +23,9 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ## 页面
 
 - 跟踪：读取两列 Excel（快递公司、运单号），实时显示状态、抵达时间和备注。
-- POD 抽查：从所有承运商已下载的 POD 中随机抽取 5%。FedEx 检查运单号和
-  签名图像，其他承运商检查运单号与送达状态字段，结果写入 `pod_audit.xlsx`。
+- POD 抽查：FedEx 随机抽取 20% 运单并同时检查查询主页和详情页；其他
+  承运商随机抽取 5%。FedEx 检查运单号和官网“Signed for by”字段，其他
+  承运商检查运单号与送达状态字段，结果写入 `pod_audit.xlsx`。
 - Excel 合并与核对：检验表和 Droplist 可同时处理，也可任选一侧单独合并；
   对应输出 `合并检验表.xlsx` 或 `合并Droplist.xlsx`。
   已选一侧会生成对应文件，界面未选侧保持空白。两侧都有数据时按日期与
@@ -43,12 +44,17 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 检验表原类型和用于核对的归总类别；归总类别只允许光联或 MPO。FedEx API
 Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置文件。
 
-## FedEx 逻辑（2026-09-02 修订）
+## FedEx 逻辑（2026-09-14 修订）
 - 先 trackingnumbers 正常查主单（非 MPS）——无子单运单以官网状态为准
 - associatedshipments 返回 2–39 件时，所有可见关联单全部送达才算送达
 - 返回达到 40 件时，40 件全部送达则暂定送达，并写入人工复核备注
-- POD（签名 PDF）：送达才下载，命名 = 主单号.pdf
-- 签名 POD 请求使用当前运单的 carrierCode、trackingNumberUniqueId 和账单账号
+- API 只负责快速查询状态，不再请求官方 POD 文档接口
+- 只有送达后才启动系统安装的真实 Microsoft Edge，并复用 `data/fedex_edge_profile`
+- 自动查询官网后保存两份网页 PDF：`运单号.pdf` 为查询主页，
+  `运单号+.pdf` 为点击“查看更多详细信息”后的详情页
+- 网页 POD 固定使用英文站；打印前自动关闭 Cookie 和聊天浮层
+- Edge 首次启动预热 30 秒，供公司电脑完成账号登录；登录状态保存到持久化配置
+- 界面中的同一个绿色 POD 圆点会依次打开这两份文件
 
 ## Droplist 识别
 - 日期优先从文件名读取，文件名没有日期时读取父文件夹（如 `9.10`）

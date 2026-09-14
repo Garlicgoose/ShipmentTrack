@@ -13,6 +13,9 @@ QFrame#sidebar { background: #102A43; border: none; }
 QLabel#profileName { color: white; font-weight: 600; }
 QLabel#profileCaption { color: #90A9BC; font-size: 11px; }
 QLabel#popupProfileName { font-size: 15px; font-weight: 700; color: #172B3C; }
+QLabel#popupVersion { color: #557084; font-size: 12px; }
+QLabel#popupFeature { color: #304B60; font-size: 12px; }
+QFrame#popupSeparator { color: #E1E9EE; }
 QLabel#pageTitle { font-size: 24px; font-weight: 700; color: #172B3C; }
 QLabel#sectionTitle { font-size: 16px; font-weight: 700; color: #20384C; }
 QLabel#muted { color: #708294; }

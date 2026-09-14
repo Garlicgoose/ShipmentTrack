@@ -72,7 +72,23 @@ def _fedex_signature_image_found(reader) -> bool:
 
 
 def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
-    path = Path(pdf_file)
+    path_text = str(pdf_file or "").strip()
+    if not path_text:
+        return PodAuditItem(
+            tracking_number=str(tracking_number),
+            carrier=str(carrier),
+            pdf_file="",
+            sample_reason="",
+            tracking_status="",
+            valid_pdf=False,
+            tracking_found=False,
+            delivered_found=False,
+            status_field="",
+            result="失败",
+            details="POD文件路径为空",
+            signature_found=False,
+        )
+    path = Path(path_text)
     valid_pdf = False
     tracking_found = False
     delivered_found = False
@@ -106,14 +122,15 @@ def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
                 (term for term in DELIVERED_TERMS if term in folded), ""
             )
         if str(carrier).strip().casefold() == "fedex":
-            signature_found = (
-                "signed for by" in folded
-                and _fedex_signature_image_found(reader)
+            # FedEx 现在归档官网查询页而非官方 SPOD。官网主页面会显示
+            # “Signed for by”或“签收人”，但不会包含独立签名图片。
+            signature_found = any(
+                marker in folded for marker in ("signed for by", "签收人")
             )
         if not text.strip():
             details = "PDF没有可提取文本，需要人工查看或OCR"
         elif str(carrier).strip().casefold() == "fedex" and not signature_found:
-            details = "FedEx POD未识别到签名图像"
+            details = "FedEx网页POD未识别到签收人字段"
         elif not tracking_found and not delivered_found:
             details = "未找到运单号和送达字段"
         elif not tracking_found:
@@ -150,9 +167,11 @@ def inspect_pod(pdf_file, tracking_number, carrier="") -> PodAuditItem:
 def choose_pod_samples(
     results: Iterable[dict],
     sample_rate: float = 0.05,
+    fedex_sample_rate: float = 0.20,
     rng: Optional[random.Random] = None,
 ) -> list[tuple[dict, str]]:
-    eligible = []
+    fedex_eligible = []
+    other_eligible = []
     for result in results:
         pdf_file = str(result.get("POD文件") or result.get("pdf_file") or "").strip()
         carrier = str(
@@ -164,15 +183,40 @@ def choose_pod_samples(
         }
         if not delivered or not pdf_file:
             continue
-        if Path(pdf_file).is_file():
-            eligible.append(result)
+        if carrier == "fedex":
+            detail_file = str(
+                result.get("POD详情文件") or result.get("detail_pdf_file") or ""
+            ).strip()
+            if (pdf_file and Path(pdf_file).is_file()) or (
+                detail_file and Path(detail_file).is_file()
+            ):
+                fedex_eligible.append(result)
+        elif Path(pdf_file).is_file():
+            other_eligible.append(result)
 
-    if not eligible:
-        return []
-    random_count = min(math.ceil(len(eligible) * sample_rate), len(eligible))
     generator = rng or random.SystemRandom()
-    sampled = generator.sample(eligible, random_count)
-    return [(result, "全部POD随机抽查5%") for result in sampled]
+    selected = []
+    if other_eligible:
+        count = min(math.ceil(len(other_eligible) * sample_rate), len(other_eligible))
+        selected.extend(
+            (result, "其他承运商POD随机抽查5%")
+            for result in generator.sample(other_eligible, count)
+        )
+    if fedex_eligible:
+        count = min(
+            math.ceil(len(fedex_eligible) * fedex_sample_rate),
+            len(fedex_eligible),
+        )
+        for source in generator.sample(fedex_eligible, count):
+            for key, label in (
+                ("POD文件", "查询主页"),
+                ("POD详情文件", "详情页"),
+            ):
+                item = dict(source)
+                item["_audit_pdf_file"] = str(item.get(key) or "")
+                item["_audit_pod_kind"] = label
+                selected.append((item, f"FedEx POD随机抽查20%-{label}"))
+    return selected
 
 
 def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
@@ -182,7 +226,7 @@ def _save_audit_workbook(items: list[PodAuditItem], output_file: Path) -> None:
     sheet.sheet_view.showGridLines = False
     headers = (
         "运单号", "承运商", "POD文件", "抽查原因", "查询状态", "PDF有效",
-        "运单号匹配", "提取状态", "送达字段匹配", "FedEx签名", "结果", "说明",
+        "运单号匹配", "提取状态", "送达字段匹配", "FedEx签收人字段", "结果", "说明",
     )
     sheet.append(headers)
     for item in items:
@@ -223,8 +267,13 @@ def audit_pod_sample(
     sampled = choose_pod_samples(results, rng=rng)
     items = []
     for result, reason in sampled:
+        pdf_to_check = (
+            result.get("_audit_pdf_file", "")
+            if "_audit_pdf_file" in result
+            else result.get("POD文件") or result.get("pdf_file")
+        )
         checked = inspector(
-            result.get("POD文件") or result.get("pdf_file"),
+            pdf_to_check,
             result.get("运单号") or result.get("tracking_number"),
             result.get("快递公司") or result.get("carrier", ""),
         )

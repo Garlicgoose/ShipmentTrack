@@ -8,30 +8,19 @@ FedEx Tracking API 模块
 3. 普通单以 trackingnumbers 接口结果为准
 4. 多件货必须所有已返回关联单均为 Delivered，才判定整票送达
 5. associatedshipments 返回达到 40 条时，增加人工复核备注
-6. 整票送达后自动下载 Signature Proof of Delivery PDF
-7. POD 文件名：主单号.pdf
-
-POD 下载条件：
-- save_pdf=True
-- pdf_dir 不为空，或全局 PDF_DIR 已设置
-- 运单/整票判断为 Delivered
-- tracking API 返回 trackControlNumber 和 shipmentTimestamp
+6. 本模块只查询状态；网页 POD 由 ``fedex_web_pod`` 使用真实 Edge 保存
 
 环境变量：
 - FEDEX_API_KEY
 - FEDEX_API_SECRET
-- FEDEX_ACCOUNT_NUMBER（下载带签名 SPOD 时使用；未设置时默认 791310059）
 """
 
-import base64
-import binascii
 import os
 import sys
 import time
 import json
 import random
 import threading
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -48,16 +37,10 @@ FEDEX_BASE_URL = "https://apis.fedex.com"
 TOKEN_URL = f"{FEDEX_BASE_URL}/oauth/token"
 TRACK_URL = f"{FEDEX_BASE_URL}/track/v1/trackingnumbers"
 ASSOC_URL = f"{FEDEX_BASE_URL}/track/v1/associatedshipments"
-DOC_URL = f"{FEDEX_BASE_URL}/track/v1/trackingdocuments"
 
 LOCALE = "en_US"
 REQUEST_TIMEOUT_SECONDS = 40
 FEDEX_RELATED_LIMIT = 40
-OVERWRITE_EXISTING_POD = True
-FEDEX_ACCOUNT_NUMBER = os.getenv(
-    "FEDEX_ACCOUNT_NUMBER",
-    "791310059",
-).strip()
 
 # 稳定性配置
 RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
@@ -197,7 +180,7 @@ def _apply_cached_status(
     merged = dict(result)
     for key in (
         "status", "is_delivered", "delivery_date", "arrival_time",
-        "pdf_file", "piece_count"
+        "piece_count"
     ):
         if cached.get(key) not in (None, ""):
             merged[key] = cached[key]
@@ -495,263 +478,12 @@ def _query_assoc(
 
 
 # ============================================================
-# POD 下载
+# 已停用的旧官方 POD 接口
 # ============================================================
 
-def _extract_document_content(document: Any) -> str:
-    """兼容 documents 元素为 Base64 字符串或对象的情况。"""
-    if isinstance(document, str):
-        return document.strip()
-    if not isinstance(document, dict):
-        return ""
-
-    for field in (
-        "content",
-        "document",
-        "encodedContent",
-        "encodedGraphic",
-        "documentContent",
-        "data",
-    ):
-        value = document.get(field)
-        if value:
-            return str(value).strip()
-    return ""
-
-
-def _decode_pdf_content(encoded_content: str) -> bytes:
-    content = str(encoded_content or "").strip()
-    if not content:
-        raise ValueError("POD document content is empty")
-
-    if content.startswith("data:") and "," in content:
-        content = content.split(",", 1)[1]
-
-    content = "".join(content.split())
-    try:
-        pdf_bytes = base64.b64decode(content, validate=True)
-    except (ValueError, binascii.Error) as exc:
-        raise ValueError("POD content is not valid Base64") from exc
-
-    if not pdf_bytes:
-        raise ValueError("Decoded POD PDF is empty")
-    if not pdf_bytes.startswith(b"%PDF"):
-        raise ValueError(
-            "Decoded POD content is not a PDF. "
-            f"First bytes: {pdf_bytes[:100]!r}"
-        )
-    return pdf_bytes
-
-
-def _save_pod(
-    session: requests.Session,
-    tracking_number: str,
-    token: str,
-    master_piece: Dict[str, Any],
-    pdf_dir: Any,
-    timeout: int = REQUEST_TIMEOUT_SECONDS,
-) -> Tuple[str, str]:
-    """
-    按已验证成功的 fedex_spod_download.py 流程下载签名 SPOD：
-    1. 先用 trackingnumbers 查询当前请求运单；
-    2. 从该运单响应读取 carrierCode 和 trackingNumberUniqueId；
-    3. 在 trackingdocuments 请求中同时提交 billing accountNumber；
-    4. 解码 output.documents[0] 并保存 PDF。
-
-    返回：(pdf_file, error)
-    """
-    if not pdf_dir:
-        return "", "POD directory is not set"
-
-    tracking_number = str(tracking_number or "").strip()
-    if not tracking_number:
-        return "", "Tracking number is empty"
-    if not FEDEX_ACCOUNT_NUMBER:
-        return "", "FedEx billing account number is not set"
-
-    output_directory = Path(pdf_dir).expanduser().resolve()
-    output_directory.mkdir(parents=True, exist_ok=True)
-    output_file = output_directory / f"{tracking_number}.pdf"
-
-    # 关键：不能直接复用其他候选单号的 master_piece。
-    # 必须像已测试成功的独立脚本一样，先查询当前请求号码，取得匹配的
-    # carrierCode 与 trackingNumberUniqueId。
-    exact_piece, tracking_error = _query_trackingnumbers(
-        session=session,
-        token=token,
-        tracking_number=tracking_number,
-        timeout=timeout,
-    )
-    source_piece = exact_piece or master_piece or {}
-    piece_info = source_piece.get("trackingNumberInfo") or {}
-
-    returned_number = str(piece_info.get("trackingNumber") or "").strip()
-    carrier_code = str(piece_info.get("carrierCode") or "FDXE").strip()
-    unique_id = str(piece_info.get("trackingNumberUniqueId") or "").strip()
-
-    # trackingnumbers 若返回了另一条重复号码记录，不把不匹配的 Unique ID
-    # 强行用于当前号码，以免获得无签名的普通 POD。
-    if returned_number and returned_number != tracking_number:
-        unique_id = ""
-
-    tracking_number_info: Dict[str, str] = {
-        "trackingNumber": tracking_number,
-        "carrierCode": carrier_code or "FDXE",
-    }
-    if unique_id:
-        tracking_number_info["trackingNumberUniqueId"] = unique_id
-
-    payload = {
-        "trackDocumentDetail": {
-            "documentType": "SIGNATURE_PROOF_OF_DELIVERY",
-            "documentFormat": "PDF",
-        },
-        "trackDocumentSpecification": [
-            {
-                "trackingNumberInfo": tracking_number_info,
-                "accountNumber": FEDEX_ACCOUNT_NUMBER,
-            }
-        ],
-    }
-
-    document_headers = _api_headers(token)
-    document_headers["x-customer-transaction-id"] = str(uuid.uuid4())
-
-    try:
-        response = _post_with_retry(
-            session,
-            DOC_URL,
-            json=payload,
-            headers=document_headers,
-            timeout=timeout,
-        )
-    except requests.RequestException as exc:
-        return "", f"POD request failed: {exc}"
-
-    if response.status_code != 200:
-        detail = _extract_error_message(response)
-        if tracking_error:
-            detail = f"{detail}; tracking lookup: {tracking_error}"
-        return "", f"POD API HTTP {response.status_code}: {detail}"
-
-    try:
-        data = response.json()
-    except ValueError:
-        return "", f"POD API returned invalid JSON: {response.text[:500]}"
-
-    output = data.get("output") or {}
-    documents = output.get("documents") or []
-    if not documents:
-        return "", "POD API returned no documents. Response=" + str(data)[:1000]
-
-    encoded_content = _extract_document_content(documents[0])
-    if not encoded_content:
-        return "", (
-            "POD document has no PDF content. "
-            f"type={type(documents[0]).__name__}"
-        )
-
-    try:
-        pdf_bytes = _decode_pdf_content(encoded_content)
-    except (ValueError, binascii.Error) as exc:
-        return "", f"POD decode failed: {exc}"
-
-    # 使用临时文件再替换，避免写入中断留下损坏 PDF。
-    temp_file = output_file.with_suffix(".pdf.tmp")
-    try:
-        temp_file.write_bytes(pdf_bytes)
-        temp_file.replace(output_file)
-    except PermissionError as exc:
-        # PDF 正在 Edge/Adobe/WPS 中打开时，Windows 可能禁止覆盖。
-        # 不丢失本次成功下载结果，改存带时间戳的新文件。
-        try:
-            if temp_file.exists():
-                temp_file.unlink()
-        except OSError:
-            pass
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        fallback_file = output_directory / f"{tracking_number}_{timestamp}.pdf"
-        try:
-            fallback_file.write_bytes(pdf_bytes)
-        except OSError as fallback_exc:
-            return "", (
-                "POD save failed: target PDF is open or locked; "
-                f"original={exc}; fallback={fallback_exc}"
-            )
-        output_file = fallback_file
-    except OSError as exc:
-        try:
-            if temp_file.exists():
-                temp_file.unlink()
-        except OSError:
-            pass
-        return "", f"POD save failed: {exc}"
-
-    if not output_file.exists() or output_file.stat().st_size == 0:
-        return "", "POD PDF was not created or is empty"
-
-    return str(output_file), ""
-
-def _pod_request_numbers(
-    tracking_number: str,
-    preferred_piece: Optional[Dict[str, Any]],
-    fallback_piece: Optional[Dict[str, Any]],
-) -> List[str]:
-    """决定 POD 下载尝试顺序：MPS 整票先试主单号，普通单用输入号。
-
-    旧实现每次都拿「输入运单号」请求 POD（候选回退形同虚设）：
-    当输入号是 MPS 子单时，用子单号请求签名 PDF 会失败；
-    改为按 主单号 → 输入号 顺序逐个尝试，文件名 = 实际请求成功的运单号。
-    """
-    numbers: List[str] = []
-
-    def _add(number: Any) -> None:
-        number = str(number or "").strip()
-        if number and number not in numbers:
-            numbers.append(number)
-
-    if isinstance(fallback_piece, dict):
-        _add(_get_tracking_number(fallback_piece))
-    if isinstance(preferred_piece, dict):
-        _add(_get_tracking_number(preferred_piece))
-    _add(tracking_number)
-    return numbers
-
-
-def _download_pod_to_result(
-    result: Dict[str, Any],
-    session: requests.Session,
-    tracking_number: str,
-    token: str,
-    preferred_piece: Optional[Dict[str, Any]],
-    fallback_piece: Optional[Dict[str, Any]],
-    pdf_dir: Any,
-) -> None:
-    numbers = _pod_request_numbers(
-        tracking_number, preferred_piece, fallback_piece
-    )
-
-    if not numbers:
-        _append_flag(result, "POD未下载：没有可用的运单号")
-        return
-
-    errors: List[str] = []
-    for number in numbers:
-        pdf_file, error = _save_pod(
-            session=session,
-            tracking_number=number,
-            token=token,
-            master_piece=preferred_piece,
-            pdf_dir=pdf_dir,
-        )
-        if pdf_file:
-            result["pdf_file"] = pdf_file
-            return
-        if error:
-            errors.append(error)
-
-    unique_errors = list(dict.fromkeys(errors))
-    _append_flag(result, "POD未下载：" + " | ".join(unique_errors))
+def _save_pod(*_args: Any, **_kwargs: Any) -> Tuple[str, str]:
+    """兼容历史调用；禁止请求官方 POD，改由真实 Edge 保存官网页面。"""
+    return "", "官方POD接口已停用，请使用真实Edge网页POD"
 
 
 # ============================================================
@@ -790,7 +522,6 @@ def _query_fedex_one_live(
         result["error"] = "FedEx API key/secret not set"
         return result
 
-    effective_pdf_dir = pdf_dir if pdf_dir is not None else PDF_DIR
     own_session = _session is None
     session = _session or requests.Session()
 
@@ -829,16 +560,6 @@ def _query_fedex_one_live(
                     result["delivery_date"] = formatted
                     result["arrival_time"] = formatted
 
-                if save_pdf:
-                    _download_pod_to_result(
-                        result=result,
-                        session=session,
-                        tracking_number=tracking_number,
-                        token=token,
-                        preferred_piece=main_piece,
-                        fallback_piece=assoc_master,
-                        pdf_dir=effective_pdf_dir,
-                    )
             return result
 
         # 多件货：检查所有 associatedshipments 返回件
@@ -879,16 +600,6 @@ def _query_fedex_one_live(
         if piece_count >= FEDEX_RELATED_LIMIT:
             _append_flag(result, "当前返回的40个关联单均已送达")
 
-        if save_pdf:
-            _download_pod_to_result(
-                result=result,
-                session=session,
-                tracking_number=tracking_number,
-                token=token,
-                preferred_piece=main_piece,
-                fallback_piece=master_piece,
-                pdf_dir=effective_pdf_dir,
-            )
         return result
 
     except requests.RequestException as exc:
@@ -917,7 +628,10 @@ def query_fedex_one(
     use_cache: bool = True,
     cache_file: Any = None,
 ) -> Dict[str, Any]:
-    """查询单票；临时失败时自动回退到最后一次成功状态。"""
+    """查询单票状态；临时失败时自动回退到最后一次成功状态。
+
+    ``save_pdf`` 和 ``pdf_dir`` 仅为旧调用兼容参数，不再触发官方 POD。
+    """
     tracking_number = str(tracking_number or "").strip()
     cache = _load_status_cache(cache_file) if use_cache else {}
     # 单票公开入口也复用进程级 Session。主运行器逐行调用时不再重复
@@ -943,7 +657,7 @@ def query_fedex_one(
             key: result.get(key)
             for key in (
                 "tracking_number", "status", "is_delivered", "delivery_date",
-                "arrival_time", "pdf_file", "piece_count", "cache_updated_at"
+                "arrival_time", "piece_count", "cache_updated_at"
             )
         }
         try:

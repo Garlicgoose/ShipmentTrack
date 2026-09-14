@@ -55,6 +55,12 @@ from units import detect_chrome_path, get_resource_path
 APP_ICON = str(get_resource_path() / "assets" / "app_icon.png")
 PROFILE_AVATAR = str(get_resource_path() / "assets" / "github_avatar.jpg")
 PROFILE_NAME = "Garlicgoose"
+APP_VERSION = "1.0"
+APP_FEATURES = (
+    "查询 FedEx、DHL、UPS、EI、DSV 运单状态",
+    "下载已送达货件 POD",
+    "合并检验表与 Droplist",
+)
 CARRIER_NAMES = ("FedEx", "DHL", "UPS", "EI", "DSV")
 
 
@@ -166,7 +172,13 @@ class MainWindow(QMainWindow):
         profile.addStretch(1)
         profile.addWidget(avatar)
         profile.addStretch(1)
-        self.profile_popup = ProfilePopup(PROFILE_AVATAR, PROFILE_NAME, self)
+        self.profile_popup = ProfilePopup(
+            PROFILE_AVATAR,
+            PROFILE_NAME,
+            f"ShipmentTrack v{APP_VERSION}",
+            APP_FEATURES,
+            self,
+        )
         self.profile_button.clicked.connect(
             lambda: position_popup(self.profile_popup, self.profile_button)
         )
@@ -623,14 +635,21 @@ class MainWindow(QMainWindow):
         for column, value in enumerate(values):
             self.tracking_table.setItem(row, column, QTableWidgetItem(str(value)))
 
-        pod_path = str(result.get("POD文件", "") or "")
-        pod_exists = bool(pod_path and Path(pod_path).is_file())
+        pod_paths = [
+            str(result.get(key, "") or "")
+            for key in ("POD文件", "POD详情文件")
+        ]
+        pod_paths = [path for path in pod_paths if path and Path(path).is_file()]
+        pod_exists = bool(pod_paths)
         pod_item = self.tracking_table.item(row, 5)
         pod_item.setText("●" if pod_exists else "·")
         pod_item.setTextAlignment(Qt.AlignCenter)
-        pod_item.setData(Qt.UserRole, pod_path if pod_exists else "")
+        pod_item.setData(Qt.UserRole, pod_paths)
         pod_item.setForeground(QColor("#21A366" if pod_exists else "#AAB6BF"))
-        pod_item.setToolTip("点击打开 POD" if pod_exists else "没有 POD")
+        if len(pod_paths) == 2:
+            pod_item.setToolTip("点击打开 FedEx 查询主页和详情页")
+        else:
+            pod_item.setToolTip("点击打开 POD" if pod_exists else "没有 POD")
 
         carrier_key = str(result.get("快递公司", "")).strip().casefold()
         carrier = next(
@@ -708,9 +727,12 @@ class MainWindow(QMainWindow):
         if column != 5:
             return
         item = self.tracking_table.item(row, column)
-        path = item.data(Qt.UserRole) if item else ""
-        if path and Path(path).is_file():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        paths = item.data(Qt.UserRole) if item else []
+        if isinstance(paths, str):
+            paths = [paths]
+        for path in paths or []:
+            if path and Path(path).is_file():
+                QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _show_tracking_detail(self, row, _column):
         values = []

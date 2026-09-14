@@ -1,4 +1,4 @@
-# ShipmentTrack v0.9
+# ShipmentTrack v1.0
 
 快递批量查询工具（DHL / DSV / EI / UPS / FedEx），Garlicgoose 制作。
 
@@ -6,19 +6,23 @@
 
 - 读取 Excel（第一列=快递公司，第二列=运单号），批量查询运单状态
 - 每个快递（DHL/DSV/EI/UPS）执行前自动预热：打开官网、关闭 cookie/欢迎弹窗等浮层，再开始查询
-- DHL / DSV / EI / UPS 通过模拟浏览器查询，FedEx 通过官方 API 查询
+- DHL / DSV / EI / UPS 通过外接浏览器查询；FedEx 状态通过官方 API 查询，
+  送达后用系统真实 Microsoft Edge 保存官网查询页面
 - 已送达货件自动下载 POD（PDF）到 `输出文件夹\pdf\对应快递`
 - 输出结果 Excel：运单号 / 快递公司 / **状态** / 抵达时间 / 用时(秒) / 备注
   - 「状态」列是读取到的原始状态（如 Delivered / In Transit），用于排查问题
   - FedEx 返回 2–39 个关联单时：全部送达才算送达
   - FedEx 返回达到 40 个关联单时：当前 40 个全部送达则暂定送达，
     备注列标注需要人工复核
+  - FedEx 不下载官方 POD：保存 `运单号.pdf` 查询主页和
+    `运单号+.pdf` 详情页两份文件
 - 勾选「只查状态」时只查状态，不下载任何 PDF
 - 检验表与 Droplist 可以一起处理，也可以任选一侧单独合并；只生成已选侧文件
 - 合并检验表.xlsx 的“类型箱数”页按日期汇总各原类型箱数
 - 检验表保留澳车、港车、814S 等详细类型，仅在核对时归总到光联/MPO
-- 所有承运商已下载的 POD 随机抽取 5%，结果保存为 pod_audit.xlsx
-  - FedEx 检查运单号与签名图像
+- FedEx 随机抽取 20% 运单，查询主页和详情页两份都检查；其他承运商随机
+  抽取 5%，结果保存为 pod_audit.xlsx
+  - FedEx 检查运单号与英文官网“Signed for by”字段
   - 其他承运商检查运单号与 PDF 中的送达状态字段
 
 ## 使用方法
@@ -29,6 +33,8 @@
    - 输出文件夹
    - EI 邮箱 / 密码（EI 运单需要）
    - FedEx API Key / Secret（developer.fedex.com 注册获取）
+   - FedEx 网页 POD 使用 Windows 自带的真实 Edge；首次启动会预热 30 秒，
+     如果公司要求登录 Edge 账号，请在这段时间内完成登录
    - Chromium：模拟浏览器路径。点击「自动检测 Chromium」，或手动指向
      外接 Chromium 的 chrome.exe
    - 勾选「最小化」：浏览器弹出后自动最小化（后台运行，不挡视线）
@@ -68,8 +74,11 @@ Chromium 不在程序目录中。请单独准备 Chromium，并在设置页自�
 ## 常见问题
 
 - **启动报 "Unable to start"**：网络不可用或未授权，检查网络/联系管理员
-- **FedEx 查询报错**：确认设置里的 API Key/Secret 正确
+- **FedEx 查询报错**：确认 API Key/Secret 正确，并确认 Windows 自带 Edge
+  可以正常访问 fedex.com
 - **浏览器没弹出来**：设置了「最小化」，任务栏能看到；取消勾选设置中的
   「最小化」即可正常显示
+- **POD 出现 Cookie 或聊天框**：程序会在主页和详情页打印前分别关闭或隐藏，
+  不应遮挡运输记录
 - **同事电脑没有 Python / 库**：不需要，exe 已内置程序运行库；Chromium
   需要单独准备并在设置页指定路径

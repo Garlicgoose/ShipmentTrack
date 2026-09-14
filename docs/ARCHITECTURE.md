@@ -5,9 +5,10 @@
 - Python 3.12
 - PySide6 Widgets 原生桌面界面
 - requests：FedEx 官方 API
-- Playwright：DHL、UPS、EI、DSV，驱动外接 Chromium
+- Playwright：DHL、UPS、EI、DSV 驱动外接 Chromium；FedEx POD 通过 CDP
+  接管系统真实 Microsoft Edge
 - openpyxl：跟踪结果、检验表和 Droplist
-- pypdf：POD 抽查；FedEx 验证签名图，其他承运商验证送达字段
+- pypdf：POD 抽查；FedEx 验证官网签收人字段，其他承运商验证送达字段
 - PyInstaller：Windows onedir 打包
 - cryptography：Ed25519 签名验证；PyArmor：打包时混淆授权核心
 
@@ -30,10 +31,12 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 1. `main.py` 创建应用并执行启动检查。
 2. `ui/main_window.py` 提供跟踪、Excel 合并与核对、设置三个页面。
 3. `modules/tracking_runner.py` 清洗运单、复用承运商会话并实时回传结果。
-4. FedEx 调用官方 API；其他承运商由 `TrackingCarrierSession` 使用外接 Chromium。
+4. FedEx API 只查询状态；送达后由 `FedExEdgePodSession` 启动真实 Edge，
+   打印查询主页和从主页点击进入的详情页。其他承运商由
+   `TrackingCarrierSession` 使用外接 Chromium。
 5. 只有抵达货件允许下载 POD；只查状态模式不会下载 POD。
-6. 所有承运商 POD 完成后随机抽查 5%。FedEx 检查签名，其他承运商检查送达
-   字段，结果写入 `pod_audit.xlsx`。
+6. FedEx 随机抽查 20% 运单，且每个样本同时检查主页和详情页；其他承运商
+   随机抽查 5%。结果写入 `pod_audit.xlsx`。
 7. 跟踪与 Excel 合并由两个独立 QThread 执行，输出路径也分别保存。
 
 授权与机器码的通用实现位于 `E:\python_modules\authorization`；本项目的
@@ -45,6 +48,7 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 - `data/delivery_status_mappings.json`：EI、DSV 的额外严格抵达状态。
 - `data/settings.json`：界面设置；密码和 Secret 使用 Windows DPAPI 加密。
 - `data/fedex_status_cache.json`：FedEx 状态缓存。
+- `data/fedex_edge_profile/`：FedEx 真实 Edge 的持久化 Cookie 和站点状态。
 - `data/machine_id`、`data/authorization.cache`：机器标识与 DPAPI 授权缓存。
 
 ## Excel 输出

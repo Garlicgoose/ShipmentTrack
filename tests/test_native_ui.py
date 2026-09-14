@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtTest import QTest
 
 from modules.settings_store import SettingsStore
-from ui.main_window import MainWindow, PROFILE_AVATAR, PROFILE_NAME
+from ui.main_window import APP_FEATURES, APP_VERSION, MainWindow, PROFILE_AVATAR, PROFILE_NAME
 
 
 class NativeUiTests(unittest.TestCase):
@@ -54,7 +54,11 @@ class NativeUiTests(unittest.TestCase):
             label.text() for label in self.window.profile_popup.findChildren(QLabel)
             if label.text()
         ]
-        self.assertEqual([PROFILE_NAME], popup_labels)
+        self.assertEqual(
+            [PROFILE_NAME, f"ShipmentTrack v{APP_VERSION}"]
+            + [f"•  {feature}" for feature in APP_FEATURES],
+            popup_labels,
+        )
         sidebar_profile_text = [
             label.text() for label in self.window.profile_button.findChildren(QLabel)
             if label.text()
@@ -154,6 +158,29 @@ class NativeUiTests(unittest.TestCase):
         with mock.patch("ui.main_window.QDesktopServices.openUrl", return_value=True) as open_url:
             self.window._handle_tracking_cell_click(0, 5)
         open_url.assert_called_once()
+
+    def test_fedex_pod_green_dot_opens_main_and_detail_pages(self):
+        main_pdf = Path(self.temp_dir.name) / "789.pdf"
+        detail_pdf = Path(self.temp_dir.name) / "789+.pdf"
+        main_pdf.write_bytes(b"%PDF-main")
+        detail_pdf.write_bytes(b"%PDF-detail")
+        self.window._append_tracking_result({
+            "运单号": "789",
+            "快递公司": "FedEx",
+            "状态": "Delivered",
+            "抵达时间": "2026/9/10",
+            "用时(秒)": 1,
+            "POD文件": str(main_pdf),
+            "POD详情文件": str(detail_pdf),
+            "备注": "",
+        })
+        pod_item = self.window.tracking_table.item(0, 5)
+        self.assertIn("主页和详情页", pod_item.toolTip())
+        with mock.patch(
+            "ui.main_window.QDesktopServices.openUrl", return_value=True
+        ) as open_url:
+            self.window._handle_tracking_cell_click(0, 5)
+        self.assertEqual(2, open_url.call_count)
 
     def test_settings_page_writes_mapping_json_without_manual_editing(self):
         page = self.window.settings_page

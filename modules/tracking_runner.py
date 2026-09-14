@@ -17,6 +17,7 @@ from modules.tracking_utils import (
     TrackingCarrierSession,
 )
 from modules import fedex_module
+from modules.fedex_web_pod import FedExEdgePodSession
 from modules.pod_audit import audit_pod_sample
 
 
@@ -25,6 +26,18 @@ def _is_delivered_truthy(value):
     if isinstance(value, bool):
         return value
     return str(value or "").strip().lower() in ("yes", "y", "true", "1")
+
+
+def _aggregate_audit_results(items):
+    """One failed FedEx page makes the shipment-level audit fail."""
+    priority = {"通过": 1, "人工复核": 2, "失败": 3}
+    aggregated = {}
+    for item in items:
+        number = str(item.tracking_number)
+        current = aggregated.get(number, "")
+        if priority.get(item.result, 0) >= priority.get(current, 0):
+            aggregated[number] = item.result
+    return aggregated
 
 
 def run_tracking(
@@ -89,6 +102,7 @@ def run_tracking(
     results = []
     current_carrier = None
     session = None
+    fedex_pod_session = None
     playwright = None
 
     try:
@@ -128,14 +142,37 @@ def run_tracking(
 
             try:
                 if TRACKING_CARRIER_CONFIG[carrier].get("api_based"):
-                    # FedEx 官方 API，不走浏览器
+                    # FedEx API 只负责快速判断状态；已送达后的两份网页 POD
+                    # 由系统安装的真实 Edge 打印，不调用官方 POD 文档接口。
                     raw_result = fedex_module.query_fedex_one(
                         tracking_number,
                         api_key=fedex_api_key,
                         api_secret=fedex_api_secret,
-                        save_pdf=save_pdf,
-                        pdf_dir=str(pdf_root / "FedEx"),
+                        save_pdf=False,
                     )
+                    if save_pdf and _is_delivered_truthy(
+                        raw_result.get("is_delivered")
+                    ):
+                        if playwright is None:
+                            playwright = sync_playwright().start()
+                        if fedex_pod_session is None:
+                            fedex_pod_session = FedExEdgePodSession(
+                                playwright,
+                                pdf_root / "FedEx",
+                                edge_path=chrome_path,
+                                minimize_browser=minimize_browser,
+                                log_func=log,
+                            )
+                        pod_result = fedex_pod_session.download(tracking_number)
+                        raw_result["pdf_file"] = pod_result.main_pdf
+                        raw_result["detail_pdf_file"] = pod_result.detail_pdf
+                        if not pod_result.ok:
+                            pod_error = "FedEx网页POD未完整生成：" + pod_result.error
+                            raw_result["flag"] = " | ".join(
+                                value for value in (
+                                    raw_result.get("flag", ""), pod_error
+                                ) if value
+                            )
                 else:
                     raw_result = session.query_one(tracking_number)
 
@@ -161,6 +198,7 @@ def run_tracking(
                     "抵达时间": arrival_time,
                     "用时(秒)": elapsed_seconds,
                     "POD文件": raw_result.get("pdf_file", "") or "",
+                    "POD详情文件": raw_result.get("detail_pdf_file", "") or "",
                     "POD抽查": "",
                     "备注": remark,
                     "from_cache": bool(raw_result.get("from_cache")),
@@ -180,6 +218,7 @@ def run_tracking(
                     "抵达时间": "",
                     "用时(秒)": elapsed_seconds,
                     "POD文件": "",
+                    "POD详情文件": "",
                     "POD抽查": "",
                     "备注": str(e),
                 }
@@ -197,6 +236,8 @@ def run_tracking(
             session.close()
             session = None
     finally:
+        if fedex_pod_session is not None:
+            fedex_pod_session.close()
         if playwright is not None:
             try:
                 playwright.stop()
@@ -207,9 +248,7 @@ def run_tracking(
     if save_pdf:
         audit_file = output_path / "pod_audit.xlsx"
         audit_items = audit_pod_sample(results, audit_file)
-        audit_by_tracking = {
-            item.tracking_number: item.result for item in audit_items
-        }
+        audit_by_tracking = _aggregate_audit_results(audit_items)
         for item in results:
             item["POD抽查"] = audit_by_tracking.get(str(item["运单号"]), "")
         if audit_items:
