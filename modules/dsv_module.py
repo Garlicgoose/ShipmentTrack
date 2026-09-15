@@ -497,6 +497,8 @@ def click_dsv_result_by_position(page):
         "[data-testid*='shipment']",
         "[class*='shipment'][class*='result']",
         "[class*='result-card']",
+        "a[class*='cursor-pointer']",
+        "[class*='cursor-pointer']",
         "article",
     )
     for selector in selectors:
@@ -506,8 +508,17 @@ def click_dsv_result_by_position(page):
                 item = items.nth(index)
                 if not item.is_visible(timeout=800):
                     continue
+                is_result_id = False
+                if "cursor-pointer" in selector:
+                    card_text = item.inner_text(timeout=1000).strip()
+                    is_card = "shipment id" in card_text.casefold() and "status" in card_text.casefold()
+                    is_result_id = re.fullmatch(r"[A-Za-z0-9-]{8,40}", card_text) is not None
+                    if not is_card and not is_result_id:
+                        continue
                 box = item.bounding_box()
-                if not box or box["width"] < 120 or box["height"] < 35:
+                minimum_width = 60 if is_result_id else 120
+                minimum_height = 10 if is_result_id else 35
+                if not box or box["width"] < minimum_width or box["height"] < minimum_height:
                     continue
                 item.scroll_into_view_if_needed(timeout=2000)
                 page.mouse.click(
