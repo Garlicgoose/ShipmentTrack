@@ -65,6 +65,21 @@ Shipment picked up
             extract_status_from_dom(page),
         )
 
+    def test_current_status_dom_keeps_dynamic_dhl_status_sentence(self):
+        page = mock.Mock()
+        page.evaluate.return_value = [{
+            "text": (
+                "Shipment has departed from a DHL facility AMSTERDAM - NETHERLANDS, THE\n"
+                ", Tracking Code: 1 2 5 6 9 4 0 5 4 3"
+            ),
+            "score": 150,
+            "top": 220,
+        }]
+        self.assertEqual(
+            "Shipment has departed from a DHL facility AMSTERDAM - NETHERLANDS, THE",
+            extract_status_from_dom(page),
+        )
+
     def test_custom_delivered_status_is_exact_and_dom_scoped(self):
         import modules.dhl_module as dhl
         original = dhl.CUSTOM_DELIVERED_STATUSES

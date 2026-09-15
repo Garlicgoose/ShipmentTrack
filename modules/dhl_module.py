@@ -257,6 +257,30 @@ def extract_status_from_dom(page):
         for status in accepted:
             if text.casefold() == normalize_status_text(status).casefold():
                 return normalize_status_text(status)
+
+    # DHL uses dynamic current-state sentences such as
+    # "Shipment has departed from a DHL facility AMSTERDAM ...". The current
+    # status element also carries an appended ", Tracking Code: ..." label.
+    # Accept that visible, high-ranked card text while still rejecting body,
+    # footer and timeline text.
+    ignored = {
+        "track", "track & trace", "tracking results", "shipment details",
+        "shipment timeline", "event log", "piece ids",
+    }
+    for candidate in candidates or []:
+        raw = candidate.get("text", "") if isinstance(candidate, dict) else candidate
+        score = candidate.get("score", 0) if isinstance(candidate, dict) else 0
+        text = normalize_status_text(str(raw).splitlines()[0] if raw else "")
+        text = normalize_status_text(
+            re.split(r",\s*Tracking Code\s*:", text, maxsplit=1, flags=re.I)[0]
+        )
+        if (
+            score >= 70
+            and text.casefold() not in ignored
+            and 3 <= len(text) <= 240
+            and not text.casefold().startswith(("tracking code", "last update"))
+        ):
+            return text
     return ""
 
 
