@@ -16,16 +16,16 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.1"
+CURRENT_VERSION = "1.2"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "FedEx API 凭据验证与缓存修复",
-    "DHL 当前状态区域严格判定，支持自定义送达状态",
-    "DSV 详情链接与位置点击双重兜底",
-    "DHL、UPS、EI、DSV 可选实际 Edge 或 Google Chrome",
-    "新增 GitHub 在线更新与更新日志",
+    "FedEx、DHL、UPS、EI、DSV 可分别设置 POD 抽查比例",
+    "每个抽查比例支持 0% 至 100%",
+    "POD 抽查统一验证 PDF、运单号和送达状态",
+    "移除已失效的 FedEx 签名与签收人字段",
+    "抽查 Excel 增加 POD 类型和抽查比例",
 )
 
 

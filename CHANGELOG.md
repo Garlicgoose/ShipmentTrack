@@ -1,5 +1,12 @@
 # ShipmentTrack 更新日志
 
+## 1.2 - 2026-09-15
+
+- FedEx、DHL、UPS、EI、DSV 可以分别设置 0% 至 100% 的 POD 抽查比例。
+- FedEx 抽中一票时仍检查查询主页和详情页两份文件。
+- POD 抽查统一检查 PDF 有效性、运单号和送达状态，不再检查 FedEx 签名。
+- `pod_audit.xlsx` 删除“FedEx签收人字段”，增加“POD类型”和“抽查比例”。
+
 ## 1.1 - 2026-09-15
 
 - 修复更换或重新填写 FedEx API 凭据后可能复用旧 token 的问题，并增加 API 验证按钮。

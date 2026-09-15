@@ -1,4 +1,4 @@
-# ShipmentTrack v1.1
+# ShipmentTrack v1.2
 
 快递批量查询工具（DHL / DSV / EI / UPS / FedEx），Garlicgoose 制作。
 
@@ -20,10 +20,9 @@
 - 检验表与 Droplist 可以一起处理，也可以任选一侧单独合并；只生成已选侧文件
 - 合并检验表.xlsx 的“类型箱数”页按日期汇总各原类型箱数
 - 检验表保留澳车、港车、814S 等详细类型，仅在核对时归总到光联/MPO
-- FedEx 随机抽取 20% 运单，查询主页和详情页两份都检查；其他承运商随机
-  抽取 5%，结果保存为 pod_audit.xlsx
-  - FedEx 检查运单号与英文官网“Signed for by”字段
-  - 其他承运商检查运单号与 PDF 中的送达状态字段
+- 设置页可为 FedEx、DHL、UPS、EI、DSV 分别设置 0%–100% 的 POD 抽查比例
+- FedEx 抽中时检查查询主页和详情页；所有承运商统一检查 PDF、运单号和
+  送达状态，不再检查 FedEx 签名，结果保存为 pod_audit.xlsx
 
 ## 使用方法
 
@@ -42,6 +41,7 @@
      自动写入 data\filename_mappings.json；归总类别只能填写光联或 MPO
    - 送达状态：可为 DHL、EI、DSV 添加额外完整状态字段。DHL 仅使用当前
      状态区域，清理空格和末尾标点后仍要求完整匹配
+   - POD 抽查比例：五个承运商分别设置；0% 不抽查，100% 全部抽查
 3. 在「跟踪」页面选择输入 Excel 和输出文件夹，点击「开始查询」
 4. 在「Excel 合并与核对」页面选择检验表、Droplist 中至少一个文件夹和
    输出文件夹，点击「开始合并与核对」
@@ -62,7 +62,7 @@ Shipment Track\
 ```
 
 程序使用电脑已安装的 Edge 或 Google Chrome，不需要另行下载 Chromium。
-头像弹窗中可以查看 v1.1 更新日志或手动检查 GitHub 新版本。
+头像弹窗中可以查看 v1.2 更新日志或手动检查 GitHub 新版本。
 
 ## 授权说明（给使用者）
 

@@ -1,4 +1,4 @@
-# ShipmentTrack v1.1
+# ShipmentTrack v1.2
 
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
@@ -22,9 +22,9 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ## 页面
 
 - 跟踪：读取两列 Excel（快递公司、运单号），实时显示状态、抵达时间和备注。
-- POD 抽查：FedEx 随机抽取 20% 运单并同时检查查询主页和详情页；其他
-  承运商随机抽取 5%。FedEx 检查运单号和官网“Signed for by”字段，其他
-  承运商检查运单号与送达状态字段，结果写入 `pod_audit.xlsx`。
+- POD 抽查：设置页可为 FedEx、DHL、UPS、EI、DSV 分别设置 0%–100%。
+  FedEx 抽中一票时检查查询主页和详情页；所有承运商统一检查 PDF 有效性、
+  运单号和送达状态，不再检查签名。结果写入 `pod_audit.xlsx`。
 - Excel 合并与核对：检验表和 Droplist 可同时处理，也可任选一侧单独合并；
   对应输出 `合并检验表.xlsx` 或 `合并Droplist.xlsx`。
   已选一侧会生成对应文件，界面未选侧保持空白。两侧都有数据时按日期与
@@ -89,3 +89,9 @@ requirements.txt（经过打包验证的依赖版本）
 - DHL 的 Delivered 只允许来自当前状态区域，历史事件全文不再确认送达。
 - 设置页可直接验证 FedEx API；OAuth token 按 API 凭据隔离。
 - 更新文件从 GitHub 下载后必须通过 SHA-256 校验，程序退出后再安全替换 EXE。
+
+## 1.2 POD 抽查
+
+- 设置中的五个比例互相独立，0% 表示不抽查，100% 表示全部抽查。
+- 抽查表字段为运单号、承运商、POD 类型、抽查比例、查询状态、POD 文件、
+  PDF 有效、运单号匹配、PDF 提取状态、送达状态匹配、结果和说明。

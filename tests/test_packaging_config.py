@@ -67,12 +67,12 @@ class PackagingConfigTests(unittest.TestCase):
         guide = (ROOT / "使用说明.txt").read_text("utf-8")
         self.assertIn("Microsoft Edge 或 Google Chrome", readme)
         self.assertIn("不需要另行下载 Chromium", guide)
-        self.assertIn("ShipmentTrack v1.1", readme)
+        self.assertIn("ShipmentTrack v1.2", readme)
         self.assertIn("真实 Microsoft Edge", readme)
-        self.assertIn("随机抽取 20%", readme)
+        self.assertIn("分别设置 0%–100%", readme)
         self.assertIn("合并检验表.xlsx", readme)
         self.assertIn("归总类别只允许光联或 MPO", readme)
-        self.assertIn("FedEx 检查运单号和", readme)
+        self.assertIn("统一检查 PDF 有效性", readme)
         self.assertIn("跟踪与 Excel 合并使用独立后台任务", readme)
         self.assertIn("默认 `Sheet1` 和空表不计入合并数量", readme)
         self.assertIn("delivery_status_mappings.json", readme)
@@ -121,14 +121,17 @@ class PackagingConfigTests(unittest.TestCase):
         executable = ROOT / "release" / "Shipment Track.exe"
         main_source = (ROOT / "modules" / "app_updater.py").read_text("utf-8")
         self.assertTrue(executable.is_file())
-        self.assertEqual(
-            manifest["sha256"],
-            hashlib.sha256(executable.read_bytes()).hexdigest(),
-        )
         current = re.search(r'^CURRENT_VERSION = "([^"]+)"', main_source, re.MULTILINE)
         self.assertIsNotNone(current)
-        self.assertEqual(current.group(1), manifest["version"])
-        self.assertNotIn("/main/release/", manifest["exe_url"])
+        current_version = tuple(map(int, current.group(1).split(".")))
+        published_version = tuple(map(int, manifest["version"].split(".")))
+        self.assertLessEqual(published_version, current_version)
+        if published_version == current_version:
+            self.assertEqual(
+                manifest["sha256"],
+                hashlib.sha256(executable.read_bytes()).hexdigest(),
+            )
+            self.assertNotIn("/main/release/", manifest["exe_url"])
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@
 - Playwright CDP：DHL、UPS、EI、DSV 接管系统实际 Edge/Chrome；FedEx POD
   接管系统真实 Microsoft Edge
 - openpyxl：跟踪结果、检验表和 Droplist
-- pypdf：POD 抽查；FedEx 验证官网签收人字段，其他承运商验证送达字段
+- pypdf：POD 抽查，统一验证 PDF 文本中的运单号和送达状态
 - PyInstaller：Windows onedir 打包
 - cryptography：Ed25519 签名验证；PyArmor：打包时混淆授权核心
 
@@ -35,8 +35,8 @@ ui/         PySide6 原生界面、控件、样式和后台线程
    打印查询主页和从主页点击进入的详情页。其他承运商由
    `TrackingCarrierSession` 通过 CDP 使用实际 Edge 或 Google Chrome。
 5. 只有抵达货件允许下载 POD；只查状态模式不会下载 POD。
-6. FedEx 随机抽查 20% 运单，且每个样本同时检查主页和详情页；其他承运商
-   随机抽查 5%。结果写入 `pod_audit.xlsx`。
+6. 五个承运商分别使用设置中的 0%–100% 抽查比例；FedEx 样本同时检查主页
+   和详情页。结果写入 `pod_audit.xlsx`，不再检查签名字段。
 7. 跟踪与 Excel 合并由两个独立 QThread 执行，输出路径也分别保存。
 
 授权与机器码的通用实现位于 `E:\python_modules\authorization`；本项目的
