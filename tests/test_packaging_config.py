@@ -128,6 +128,7 @@ class PackagingConfigTests(unittest.TestCase):
         current = re.search(r'^CURRENT_VERSION = "([^"]+)"', main_source, re.MULTILINE)
         self.assertIsNotNone(current)
         self.assertEqual(current.group(1), manifest["version"])
+        self.assertNotIn("/main/release/", manifest["exe_url"])
 
 
 if __name__ == "__main__":

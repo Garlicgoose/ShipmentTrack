@@ -1,6 +1,6 @@
 {
   "version": "1.1",
-  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/Shipment%20Track.exe",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/0eb79d1d50039ddf08ba74e486d4327fd6eb422c/release/Shipment%20Track.exe",
   "sha256": "9fb3b3d37d1304f8649c986b1ec281bd061faff403e0e2d4bd37ed6e1624fe0e",
   "notes": [
     "修复 FedEx API 凭据更换与验证问题",
