@@ -25,6 +25,8 @@ DEFAULT_SETTINGS = {
     "fedex_api_key": "",
     "fedex_api_secret": "",
     "chrome_path": "",
+    "browser_type": "edge",
+    "browser_path": "",
     "minimize_browser": True,
     "only_arrival": False,
 }
@@ -254,6 +256,13 @@ class SettingsStore:
             result["excel_output_dir"] = str(Path(result["excel_output_file"]).parent)
         for key in SECRET_FIELDS:
             result[key] = unprotect_secret(result.get(key, ""))
+        if not result.get("browser_path") and result.get("chrome_path"):
+            legacy = Path(str(result["chrome_path"]))
+            if legacy.name.casefold() in {"msedge.exe", "chrome.exe"}:
+                result["browser_path"] = str(legacy)
+                result["browser_type"] = (
+                    "edge" if legacy.name.casefold() == "msedge.exe" else "chrome"
+                )
         return result
 
     def save_settings(self, settings: dict) -> None:

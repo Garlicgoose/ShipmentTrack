@@ -66,6 +66,11 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual([], sidebar_profile_text)
         self.assertEqual([], self.window.settings_page.findChildren(QScrollArea))
         self.assertEqual(2, self.window.settings_page.settings_tabs.count())
+        self.assertEqual(
+            {"edge", "chrome"},
+            set(self.window.settings_page.browser_buttons),
+        )
+        self.assertTrue(self.window.settings_page.browser_buttons["edge"].isChecked())
 
     def test_tracking_page_has_smooth_progress_and_live_table(self):
         self.assertEqual(240, self.window._tracking_progress_anim.duration())

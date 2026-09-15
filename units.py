@@ -58,36 +58,32 @@ def write_json(file_path, data):
         raise
 
 
-def detect_chrome_path():
-    """自动探测外接 Playwright Chromium 的 chrome.exe 路径。
+def browser_candidates(browser_type="edge"):
+    """Return installed-browser candidates without including Playwright Chromium."""
+    kind = str(browser_type or "edge").strip().casefold()
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    program_files = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+    program_files_x86 = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+    if kind == "chrome":
+        return (
+            program_files / "Google/Chrome/Application/chrome.exe",
+            program_files_x86 / "Google/Chrome/Application/chrome.exe",
+            local / "Google/Chrome/Application/chrome.exe",
+        )
+    return (
+        program_files_x86 / "Microsoft/Edge/Application/msedge.exe",
+        program_files / "Microsoft/Edge/Application/msedge.exe",
+        local / "Microsoft/Edge/Application/msedge.exe",
+    )
 
-    Chromium 不进入程序安装包。优先查找 exe 同级目录 chrome/，
-    其次 %LOCALAPPDATA%\\ms-playwright\\chromium-*。
-    """
-    import os
-    base = get_base_path()
-    candidates = [
-        base / "chrome" / "chrome-win64" / "chrome.exe",
-        base / "chrome" / "chrome-win" / "chrome.exe",
-        base / "chromium" / "chrome-win64" / "chrome.exe",
-        base / "chromium" / "chrome-win" / "chrome.exe",
-        base / "chromium" / "chrome.exe",
-    ]
-    for c in candidates:
-        if c.exists():
-            return str(c)
-    try:
-        import glob
-        playwright_dir = os.path.join(
-            os.environ.get("LOCALAPPDATA", ""), "ms-playwright")
-        hits = sorted(
-            glob.glob(os.path.join(playwright_dir, "chromium-*")),
-            reverse=True)
-        for folder in hits:
-            for sub in ("chrome-win64", "chrome-win"):
-                exe = os.path.join(folder, sub, "chrome.exe")
-                if os.path.exists(exe):
-                    return exe
-    except Exception:
-        pass
+
+def detect_browser_path(browser_type="edge"):
+    for candidate in browser_candidates(browser_type):
+        if candidate.is_file():
+            return str(candidate.resolve())
     return ""
+
+
+def detect_chrome_path():
+    """Backward-compatible alias that now finds installed Google Chrome only."""
+    return detect_browser_path("chrome")

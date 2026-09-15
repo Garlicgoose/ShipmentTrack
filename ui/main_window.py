@@ -49,7 +49,7 @@ from ui.components import (
 from ui.settings_page import SettingsPage
 from ui.styles import APP_STYLE
 from ui.workers import TaskWorker
-from units import detect_chrome_path, get_resource_path
+from units import detect_browser_path, get_resource_path
 
 
 APP_ICON = str(get_resource_path() / "assets" / "app_icon.png")
@@ -69,10 +69,10 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.store = settings_store or SettingsStore()
         self.settings = self.store.load_settings()
-        if not self.settings.get("chrome_path"):
-            detected = detect_chrome_path()
+        if not self.settings.get("browser_path"):
+            detected = detect_browser_path(self.settings.get("browser_type", "edge"))
             if detected:
-                self.settings["chrome_path"] = detected
+                self.settings["browser_path"] = detected
                 self.store.save_settings(self.settings)
 
         self._tracking_worker = None
@@ -602,7 +602,8 @@ class MainWindow(QMainWindow):
                 ei_password=run_settings.get("tracking_ei_password", ""),
                 fedex_api_key=run_settings.get("fedex_api_key", ""),
                 fedex_api_secret=run_settings.get("fedex_api_secret", ""),
-                chrome_path=run_settings.get("chrome_path", ""),
+                browser_type=run_settings.get("browser_type", "edge"),
+                browser_path=run_settings.get("browser_path", ""),
                 minimize_browser=bool(run_settings.get("minimize_browser", True)),
                 save_pdf=not bool(run_settings.get("only_arrival", False)),
                 log=log,

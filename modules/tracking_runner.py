@@ -49,6 +49,8 @@ def run_tracking(
     fedex_api_key="",
     fedex_api_secret="",
     chrome_path="",
+    browser_type="edge",
+    browser_path="",
     minimize_browser=True,
     save_pdf=True,
     log=None,
@@ -130,7 +132,8 @@ def run_tracking(
                         ei_login_enabled=ei_login_enabled,
                         ei_email=ei_email,
                         ei_password=ei_password,
-                        chrome_path=chrome_path,
+                        browser_type=browser_type,
+                        browser_path=browser_path or chrome_path,
                         minimize_browser=minimize_browser,
                         log_func=log,
                         save_pdf=save_pdf,
@@ -159,7 +162,7 @@ def run_tracking(
                             fedex_pod_session = FedExEdgePodSession(
                                 playwright,
                                 pdf_root / "FedEx",
-                                edge_path=chrome_path,
+                                edge_path=(browser_path if browser_type == "edge" else ""),
                                 minimize_browser=minimize_browser,
                                 log_func=log,
                             )

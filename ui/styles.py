@@ -91,6 +91,18 @@ QPushButton#primaryButton {
 QPushButton#primaryButton:hover { background: #087A74; border-color: #087A74; }
 QPushButton#dangerButton { color: #A84343; }
 QPushButton#smallButton { min-height: 30px; padding: 0 10px; }
+QPushButton#browserChoiceButton {
+    min-height: 30px;
+    padding: 0 12px;
+    color: #607386;
+    background: #F4F7F9;
+    border-color: #DCE5EB;
+}
+QPushButton#browserChoiceButton:checked {
+    color: white;
+    background: #173F5F;
+    border-color: #173F5F;
+}
 QPushButton#fileLinkButton {
     min-height: 28px;
     padding: 0 9px;

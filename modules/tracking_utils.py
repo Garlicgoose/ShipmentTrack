@@ -11,6 +11,8 @@ import math
 import re
 
 from openpyxl import load_workbook
+from modules.real_browser import RealBrowserController
+from units import detect_browser_path, get_data_path
 
 TRACKING_COMPANY_COL_INDEX = 0
 TRACKING_NUMBER_COL_INDEX = 1
@@ -255,7 +257,7 @@ def minimize_browser_window(page):
 
 
 class TrackingCarrierSession:
-    """Playwright 浏览器会话（DHL/DSV/EI/UPS 用，FedEx 走 API 不走这里）。"""
+    """DHL/DSV/EI/UPS session attached to installed Edge or Chrome."""
 
     def __init__(
         self,
@@ -266,6 +268,8 @@ class TrackingCarrierSession:
         ei_email,
         ei_password,
         chrome_path="",
+        browser_type="edge",
+        browser_path="",
         minimize_browser=True,
         log_func=None,
         save_pdf=True,
@@ -278,12 +282,15 @@ class TrackingCarrierSession:
         self.ei_email = ei_email
         self.ei_password = ei_password
         self.chrome_path = chrome_path
+        self.browser_type = str(browser_type or "edge").casefold()
+        self.browser_path = browser_path or chrome_path
         self.minimize_browser = minimize_browser
         self.log = log_func or (lambda msg: None)
         self.save_pdf = save_pdf
         self.delivery_statuses = delivery_statuses or {}
 
         self.browser = None
+        self.browser_controller = None
         self.context = None
         self.page = None
         self.module = None
@@ -314,49 +321,39 @@ class TrackingCarrierSession:
         if hasattr(self.module, "PDF_DIR"):
             setattr(self.module, "PDF_DIR", str(pdf_dir))
 
-        launch_args = [
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-            "--disable-background-timer-throttling",
-        ]
-        if self.minimize_browser:
-            # 有头模式但启动后立即最小化（窗口仍存在，任务栏可看到）
-            launch_args.insert(0, "--start-minimized")
-
-        launch_kwargs = {
-            "headless": False,
-            "args": launch_args,
-        }
-        if not (self.chrome_path and Path(self.chrome_path).exists()):
-            # 配置的路径为空或已失效（如换电脑）→ 自动探测兜底：
-            # exe 同级 chrome/ 或 %LOCALAPPDATA%\ms-playwright
-            from units import detect_chrome_path
-            self.chrome_path = detect_chrome_path()
-        if self.chrome_path and Path(self.chrome_path).exists():
-            launch_kwargs["executable_path"] = self.chrome_path
-
-        self.log(f"启动 {self.carrier} 浏览器（可视模式，最小化={self.minimize_browser}）")
-
-        self.browser = self.playwright.chromium.launch(**launch_kwargs)
-
-        self.context = self.browser.new_context(
-            locale=self.config.get("locale", "en-US"),
-            viewport=self.config.get("viewport", {"width": 1366, "height": 900})
+        if self.browser_type not in {"edge", "chrome"}:
+            self.browser_type = "edge"
+        if not (self.browser_path and Path(self.browser_path).is_file()):
+            self.browser_path = detect_browser_path(self.browser_type)
+        browser_name = "Microsoft Edge" if self.browser_type == "edge" else "Google Chrome"
+        if not self.browser_path:
+            raise FileNotFoundError(f"没有检测到 {browser_name}，请先在设置中选择浏览器路径。")
+        profile_dir = (
+            get_data_path() / "browser_profiles" / self.browser_type / self.carrier.casefold()
         )
+        self.browser_controller = RealBrowserController(
+            self.playwright,
+            self.browser_path,
+            profile_dir,
+            browser_name=browser_name,
+            locale=self.config.get("locale", "en-US"),
+            minimize=self.minimize_browser,
+            log_func=self.log,
+        )
+        self.context, self.page = self.browser_controller.start()
+        self.browser = self.browser_controller.browser
 
         install_func_name = self.config.get("install_func")
         if install_func_name and hasattr(self.module, install_func_name):
             install_func = getattr(self.module, install_func_name)
             install_func(self.context)
 
-        self.page = self.context.new_page()
-
-        if self.minimize_browser:
-            # 浏览器弹出后立即最小化（CDP，比 --start-minimized 可靠）
-            import time
-            time.sleep(1.5)
-            if minimize_browser_window(self.page):
-                self.log(f"{self.carrier} 浏览器窗口已最小化")
+        try:
+            self.page.set_viewport_size(
+                self.config.get("viewport", {"width": 1366, "height": 900})
+            )
+        except Exception:
+            pass
 
         login_func_name = self.config.get("login_func")
         if login_func_name and hasattr(self.module, login_func_name):
@@ -414,25 +411,11 @@ class TrackingCarrierSession:
     def close(self):
         self.log(f"关闭 {self.carrier} 浏览器环境")
 
-        try:
-            if self.page:
-                self.page.close()
-        except Exception:
-            pass
-
-        try:
-            if self.context:
-                self.context.close()
-        except Exception:
-            pass
-
-        try:
-            if self.browser:
-                self.browser.close()
-        except Exception:
-            pass
+        if self.browser_controller is not None:
+            self.browser_controller.close()
 
         self.page = None
         self.context = None
         self.browser = None
+        self.browser_controller = None
         self.module = None

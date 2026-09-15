@@ -9,7 +9,7 @@ from modules.settings_store import (
     FilenameMappingRule,
     SettingsStore,
 )
-from units import detect_chrome_path, write_json
+from units import detect_browser_path, detect_chrome_path, write_json
 
 
 class SettingsStoreTests(unittest.TestCase):
@@ -96,6 +96,21 @@ class SettingsStoreTests(unittest.TestCase):
 
     def test_chromium_detection_function_remains_available(self):
         self.assertIsInstance(detect_chrome_path(), str)
+
+    def test_real_browser_settings_and_detection(self):
+        settings = self.store.load_settings()
+        self.assertEqual("edge", settings["browser_type"])
+        self.assertEqual("", settings["browser_path"])
+        with mock.patch("units.browser_candidates", return_value=[Path(self.temp_dir.name) / "missing.exe"]):
+            self.assertEqual("", detect_browser_path("edge"))
+
+    def test_legacy_installed_browser_path_is_migrated(self):
+        self.store.settings_path.write_text(json.dumps({
+            "chrome_path": r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+        }), encoding="utf-8")
+        settings = self.store.load_settings()
+        self.assertEqual("edge", settings["browser_type"])
+        self.assertTrue(settings["browser_path"].endswith("msedge.exe"))
 
     def test_custom_delivery_statuses_round_trip(self):
         self.store.save_delivery_statuses({

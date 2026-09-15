@@ -3,6 +3,7 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QButtonGroup,
     QCheckBox,
     QFormLayout,
     QGroupBox,
@@ -23,7 +24,7 @@ from modules.settings_store import FilenameMappingRule
 from modules import fedex_module
 from ui.components import PathField
 from ui.workers import TaskWorker
-from units import detect_chrome_path
+from units import detect_browser_path
 
 
 class SettingsPage(QWidget):
@@ -69,7 +70,7 @@ class SettingsPage(QWidget):
         credentials_form.addRow("EI 密码", self.ei_password)
         general_layout.addWidget(credentials, 2)
 
-        paths = QGroupBox("文件与 Chromium")
+        paths = QGroupBox("文件与浏览器")
         paths_form = QFormLayout(paths)
         paths_form.setHorizontalSpacing(18)
         paths_form.setVerticalSpacing(10)
@@ -78,23 +79,37 @@ class SettingsPage(QWidget):
         self.inspect_input = PathField(mode="dir")
         self.droplist_input = PathField(mode="dir")
         self.excel_output = PathField(mode="dir")
-        self.chrome_path = PathField(mode="file", file_filter="Chromium (chrome.exe)")
-        detect_button = QPushButton("自动检测 Chromium")
+        self.browser_group = QButtonGroup(self)
+        self.browser_group.setExclusive(True)
+        browser_choices = QHBoxLayout()
+        self.browser_buttons = {}
+        for browser_type, label in (("edge", "Microsoft Edge"), ("chrome", "Google Chrome")):
+            button = QPushButton(label)
+            button.setObjectName("browserChoiceButton")
+            button.setCheckable(True)
+            self.browser_group.addButton(button)
+            self.browser_buttons[browser_type] = button
+            browser_choices.addWidget(button)
+        self.browser_buttons["edge"].setChecked(True)
+        self.browser_path = PathField(mode="file", file_filter="浏览器程序 (*.exe)")
+        self.chrome_path = self.browser_path  # legacy UI attribute
+        detect_button = QPushButton("自动检测浏览器")
         detect_button.setObjectName("smallButton")
-        detect_button.clicked.connect(self.detect_chromium)
+        detect_button.clicked.connect(self.detect_browser)
         chrome_widget = QWidget()
         chrome_layout = QVBoxLayout(chrome_widget)
         chrome_layout.setContentsMargins(0, 0, 0, 0)
         chrome_layout.setSpacing(6)
-        chrome_layout.addWidget(self.chrome_path)
+        chrome_layout.addLayout(browser_choices)
+        chrome_layout.addWidget(self.browser_path)
         chrome_layout.addWidget(detect_button, 0)
-        self.minimize_browser = QCheckBox("查询时最小化 Chromium")
+        self.minimize_browser = QCheckBox("查询时最小化浏览器")
         paths_form.addRow("默认跟踪 Excel", self.tracking_input)
         paths_form.addRow("跟踪输出文件夹", self.tracking_output)
         paths_form.addRow("检验表文件夹", self.inspect_input)
         paths_form.addRow("Droplist 文件夹", self.droplist_input)
         paths_form.addRow("合并输出文件夹", self.excel_output)
-        paths_form.addRow("Chromium 路径", chrome_widget)
+        paths_form.addRow("实际浏览器", chrome_widget)
         paths_form.addRow("", self.minimize_browser)
         general_layout.addWidget(paths, 3)
         self.settings_tabs.addTab(general_page, "连接与路径")
@@ -197,7 +212,11 @@ class SettingsPage(QWidget):
         self.inspect_input.set_value(self.settings["inspect_input_dir"])
         self.droplist_input.set_value(self.settings["droplist_input_dir"])
         self.excel_output.set_value(self.settings["excel_output_dir"])
-        self.chrome_path.set_value(self.settings["chrome_path"])
+        browser_type = str(self.settings.get("browser_type", "edge")).casefold()
+        if browser_type not in self.browser_buttons:
+            browser_type = "edge"
+        self.browser_buttons[browser_type].setChecked(True)
+        self.browser_path.set_value(self.settings.get("browser_path", ""))
         self.minimize_browser.setChecked(bool(self.settings["minimize_browser"]))
         self.mapping_table.setRowCount(0)
         for rule in self.store.load_mappings():
@@ -291,10 +310,24 @@ class SettingsPage(QWidget):
                 mapping[carrier].append(status)
         return mapping, invalid
 
+    def selected_browser_type(self):
+        return next(
+            (kind for kind, button in self.browser_buttons.items() if button.isChecked()),
+            "edge",
+        )
+
+    def detect_browser(self):
+        browser_type = self.selected_browser_type()
+        path = detect_browser_path(browser_type)
+        self.browser_path.set_value(path)
+        label = "Microsoft Edge" if browser_type == "edge" else "Google Chrome"
+        self.message.emit(
+            f"已检测到 {label}" if path else f"没有检测到 {label}，请手动选择程序路径"
+        )
+
     def detect_chromium(self):
-        path = detect_chrome_path()
-        self.chrome_path.set_value(path)
-        self.message.emit("已检测到 Chromium" if path else "没有检测到 Chromium，请手动选择 chrome.exe")
+        """Compatibility entry point for older callers."""
+        self.detect_browser()
 
     def test_fedex_api(self):
         if self._fedex_test_worker and self._fedex_test_worker.isRunning():
@@ -368,7 +401,9 @@ class SettingsPage(QWidget):
             "inspect_input_dir": self.inspect_input.value(),
             "droplist_input_dir": self.droplist_input.value(),
             "excel_output_dir": self.excel_output.value(),
-            "chrome_path": self.chrome_path.value(),
+            "browser_type": self.selected_browser_type(),
+            "browser_path": self.browser_path.value(),
+            "chrome_path": "",
             "minimize_browser": self.minimize_browser.isChecked(),
         })
         self.store.save_settings(settings)
