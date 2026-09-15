@@ -1,12 +1,11 @@
 {
-  "version": "1.1",
-  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/6e8bd427cabdd21705d3b168d0954183e8f90d73/release/Shipment%20Track.exe",
-  "sha256": "9d7a750f4eab3ae6dcb6223413f6d8502157796e0aebf16eb7e4eb7b146e23dc",
+  "version": "1.2",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/6f77e293fc6e57765933949dcf6c3676c9a01355/release/Shipment%20Track.exe",
+  "sha256": "fcc706d057650ac59d7483a6ac23efc134966c16aecb7a5b9a4e299fd0823e47",
   "notes": [
-    "增添 FedEx API 验证问题",
-    "DHL 只按当前状态判断送达，支持自定义状态",
-    "DSV 详情页增加链接与位置点击两种方法",
-    "浏览器可选择实际 Edge 或 Google Chrome",
-    "新增程序内更新检查与更新日志"
+    "五个承运商可分别设置 0% 至 100% 的 POD 抽查比例",
+    "FedEx 抽中时仍检查查询主页和详情页",
+    "移除 FedEx 签名和签收人专项检验",
+    "抽查 Excel 增加 POD 类型和抽查比例字段"
   ]
 }
