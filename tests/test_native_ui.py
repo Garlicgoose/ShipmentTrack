@@ -209,6 +209,7 @@ class NativeUiTests(unittest.TestCase):
             ["交给其他清关人"],
             self.store.load_delivery_statuses()["EI"],
         )
+        self.assertEqual([], self.store.load_delivery_statuses()["DHL"])
 
     def test_settings_page_exposes_fedex_api_validation(self):
         page = self.window.settings_page

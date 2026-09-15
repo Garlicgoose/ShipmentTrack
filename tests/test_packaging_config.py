@@ -58,7 +58,7 @@ class PackagingConfigTests(unittest.TestCase):
         delivery = json.loads(
             (ROOT / "delivery_status_mappings.json").read_text("utf-8")
         )
-        self.assertEqual({"EI": [], "DSV": []}, delivery)
+        self.assertEqual({"DHL": [], "EI": [], "DSV": []}, delivery)
 
     def test_documentation_describes_external_chromium(self):
         readme = (ROOT / "README.md").read_text("utf-8")

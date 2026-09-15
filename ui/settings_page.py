@@ -159,7 +159,7 @@ class SettingsPage(QWidget):
         statuses = QGroupBox("货代抵达状态")
         status_layout = QVBoxLayout(statuses)
         status_hint = QLabel(
-            "为 EI 或 DSV 添加额外抵达状态。清理空格和末尾标点后按完整字段匹配。"
+            "为 DHL、EI 或 DSV 添加额外抵达状态；仅与当前状态完整匹配。"
         )
         status_hint.setObjectName("muted")
         status_layout.addWidget(status_hint)
@@ -294,7 +294,7 @@ class SettingsPage(QWidget):
             self.status_table.removeRow(row)
 
     def delivery_status_mapping(self):
-        mapping = {"EI": [], "DSV": []}
+        mapping = {"DHL": [], "EI": [], "DSV": []}
         invalid = []
         for row in range(self.status_table.rowCount()):
             carrier_item = self.status_table.item(row, 0)
@@ -387,7 +387,7 @@ class SettingsPage(QWidget):
             QMessageBox.warning(
                 self,
                 "ShipmentTrack",
-                "货代承运商只能填写 EI 或 DSV：" + "、".join(invalid_carriers),
+                "状态承运商只能填写 DHL、EI 或 DSV：" + "、".join(invalid_carriers),
             )
             return
         settings = dict(self.settings)

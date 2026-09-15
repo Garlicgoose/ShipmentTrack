@@ -118,7 +118,7 @@ class SettingsStoreTests(unittest.TestCase):
             "DSV": ["Cargo released", "Cargo released"],
         })
         self.assertEqual(
-            {"EI": ["交给其他清关人"], "DSV": ["Cargo released"]},
+            {"DHL": [], "EI": ["交给其他清关人"], "DSV": ["Cargo released"]},
             self.store.load_delivery_statuses(),
         )
 

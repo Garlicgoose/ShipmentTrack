@@ -1,9 +1,11 @@
 import unittest
+from unittest import mock
 
 from modules.dhl_module import (
     DHL_STATUS_EXACT_LIST,
     extract_last_update_date,
     extract_status_from_text,
+    extract_status_from_dom,
     is_dhl_strict_delivered,
     normalize_tracking_number,
 )
@@ -40,9 +42,9 @@ Shipment picked up
         ):
             self.assertFalse(is_dhl_strict_delivered(status), status)
 
-    def test_text_requires_standalone_delivered_status(self):
+    def test_body_text_never_confirms_delivered_from_history(self):
         self.assertEqual(
-            "Delivered",
+            "Unknown",
             extract_status_from_text("Tracking\nDelivered\nSigned by A. Chen"),
         )
         status = extract_status_from_text(
@@ -51,6 +53,27 @@ Shipment picked up
             "Delivered to service point"
         )
         self.assertNotEqual("Delivered", status)
+
+    def test_current_status_dom_ignores_history_and_uses_ranked_candidate(self):
+        page = mock.Mock()
+        page.evaluate.return_value = [
+            {"text": "Shipment is out with courier for delivery", "score": 150, "top": 200},
+            {"text": "Delivered", "score": 50, "top": 900},
+        ]
+        self.assertEqual(
+            "Shipment is out with courier for delivery",
+            extract_status_from_dom(page),
+        )
+
+    def test_custom_delivered_status_is_exact_and_dom_scoped(self):
+        import modules.dhl_module as dhl
+        original = dhl.CUSTOM_DELIVERED_STATUSES
+        try:
+            dhl.CUSTOM_DELIVERED_STATUSES = ("Handed to customs agent",)
+            self.assertTrue(dhl.is_dhl_strict_delivered("Handed to customs agent"))
+            self.assertFalse(dhl.is_dhl_strict_delivered("Handed to customs agent today"))
+        finally:
+            dhl.CUSTOM_DELIVERED_STATUSES = original
 
     def test_known_exception_states_are_supported(self):
         self.assertIn("Clearance Event", DHL_STATUS_EXACT_LIST)

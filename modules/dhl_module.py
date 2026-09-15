@@ -6,6 +6,10 @@ from pathlib import Path
 from urllib.parse import quote
 
 from playwright.sync_api import sync_playwright
+from modules.status_rules import matches_exact_status
+
+
+CUSTOM_DELIVERED_STATUSES = ()
 
 
 def normalize_tracking_number(value):
@@ -85,7 +89,11 @@ def is_dhl_strict_delivered(status):
     - Delivery
     - delivered to service point 等扩展文本
     """
-    return normalize_status_text(status).casefold() == "delivered"
+    return matches_exact_status(
+        status,
+        default_statuses=("Delivered",),
+        custom_statuses=CUSTOM_DELIVERED_STATUSES,
+    )
 
 
 def close_cookie_popup(page):
@@ -200,50 +208,55 @@ def extract_status_from_dom(page):
     优先从页面主标题/醒目区域提取 DHL 主状态。
     这样可以避免 body 全文里出现 Delivered 这个词时被误判。
     """
-    selectors = [
-        "h1",
-        "h2",
-        "h3",
-        "[data-testid*='status']",
-        "[class*='status']",
-        "[class*='headline']",
-        "[class*='summary'] h1",
-        "[class*='summary'] h2",
-        "[class*='summary'] h3",
-    ]
+    try:
+        candidates = page.evaluate(
+            """
+            () => {
+                const selectors = [
+                    'h1', 'h2', 'h3', '[data-testid*="status" i]',
+                    '[class*="status" i]', '[class*="headline" i]',
+                    '[class*="summary" i] h1', '[class*="summary" i] h2'
+                ];
+                const seen = new Set();
+                const result = [];
+                for (const element of document.querySelectorAll(selectors.join(','))) {
+                    if (seen.has(element)) continue;
+                    seen.add(element);
+                    const style = getComputedStyle(element);
+                    const rect = element.getBoundingClientRect();
+                    if (style.display === 'none' || style.visibility === 'hidden' ||
+                        rect.width < 10 || rect.height < 8) continue;
+                    const history = element.closest(
+                        '[class*="timeline" i], [class*="history" i], '
+                        + '[data-testid*="timeline" i], [data-testid*="history" i]'
+                    );
+                    if (history) continue;
+                    let score = 0;
+                    const tag = element.tagName.toLowerCase();
+                    if (tag === 'h1') score += 60;
+                    else if (tag === 'h2') score += 45;
+                    else if (tag === 'h3') score += 30;
+                    const marker = `${element.className || ''} ${element.getAttribute('data-testid') || ''}`;
+                    if (/status/i.test(marker)) score += 70;
+                    if (/headline|summary/i.test(marker)) score += 25;
+                    if (rect.top >= 0 && rect.top < innerHeight * 1.5) score += 20;
+                    result.push({text: element.innerText || '', score, top: rect.top});
+                }
+                return result.sort((a, b) => b.score - a.score || a.top - b.top).slice(0, 40);
+            }
+            """
+        )
+    except Exception:
+        return ""
 
-    candidates = []
-    for selector in selectors:
-        try:
-            locators = page.locator(selector)
-            count = min(locators.count(), 20)
-            for i in range(count):
-                try:
-                    el = locators.nth(i)
-                    # 只采可见元素：页面常藏有视觉隐藏的模板/无障碍文本
-                    # （例如隐藏的 h1 "Delivered"），不可见的一律忽略
-                    if not el.is_visible(timeout=500):
-                        continue
-                    text = normalize_status_text(el.inner_text(timeout=1000))
-                    if text:
-                        candidates.append(text)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    # 第一优先级：严格等于 Delivered
-    for text in candidates:
-        if is_dhl_strict_delivered(text):
-            return "Delivered"
-
-    # 第二优先级：匹配已知完整状态文本，不能用 delivered 子串判断
-    for text in candidates:
-        text_cf = text.casefold()
-        for status in DHL_STATUS_EXACT_LIST:
-            if text_cf == status.casefold():
-                return status
-
+    accepted = tuple(DHL_STATUS_EXACT_LIST) + tuple(CUSTOM_DELIVERED_STATUSES)
+    for candidate in candidates or []:
+        text = normalize_status_text(
+            candidate.get("text", "") if isinstance(candidate, dict) else candidate
+        )
+        for status in accepted:
+            if text.casefold() == normalize_status_text(status).casefold():
+                return normalize_status_text(status)
     return ""
 
 
@@ -261,15 +274,13 @@ def extract_status_from_text(page_text):
         if line:
             lines.append(line)
 
-    # 1) 逐行严格匹配 Delivered
-    for line in lines:
-        if is_dhl_strict_delivered(line):
-            return "Delivered"
-
-    # 2) 逐行匹配 DHL 常见完整状态，包括截图中的状态
+    # 整页正文只用于诊断非送达状态。历史时间线中的独立 Delivered
+    # 不能证明当前已送达；送达只能由当前状态 DOM 区域确认。
     for line in lines:
         line_cf = line.casefold()
         for status in DHL_STATUS_EXACT_LIST:
+            if is_dhl_strict_delivered(status):
+                continue
             if line_cf == status.casefold():
                 return status
 
@@ -285,7 +296,7 @@ def extract_status_from_text(page_text):
     best_status = ""
     best_pos = None
     for status in DHL_STATUS_EXACT_LIST:
-        if status == "Delivered":
+        if is_dhl_strict_delivered(status):
             continue
         match = re.search(re.escape(status), text, re.IGNORECASE)
         if match and (best_pos is None or match.start() < best_pos):
@@ -297,26 +308,13 @@ def extract_status_from_text(page_text):
     return "Unknown"
 
 
-def _body_has_standalone_delivered(page_text):
-    """body 文本逐行是否存在独立 Delivered 行（双重确认用）。"""
-    if not page_text:
-        return False
-    for line in str(page_text).splitlines():
-        if is_dhl_strict_delivered(normalize_status_text(line)):
-            return True
-    return False
-
-
 def extract_status(page, page_text):
     """
     DHL 状态提取总入口。
     先看 DOM 主标题，再看页面文本。
-    关键防线：DOM 声称 Delivered 时，必须 body 文本逐行也存在独立
-    Delivered 行（互相印证），否则视为误判，改从文本提取。
+    当前状态 DOM 是送达判断的唯一来源；全文只诊断非送达状态。
     """
     status = extract_status_from_dom(page)
-    if status == "Delivered" and not _body_has_standalone_delivered(page_text):
-        status = ""  # DOM 误判（隐藏模板文本），重新从文本提取
     if status:
         return status
     return extract_status_from_text(page_text)

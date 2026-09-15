@@ -80,7 +80,7 @@ DEFAULT_FILENAME_MAPPINGS = [
     FilenameMappingRule(pattern="MPO", target_type="MPO", display_type="MPO"),
 ]
 
-DELIVERY_STATUS_CARRIERS = ("EI", "DSV")
+DELIVERY_STATUS_CARRIERS = ("DHL", "EI", "DSV")
 
 SECRET_FIELDS = {"fedex_api_secret", "tracking_ei_password"}
 
