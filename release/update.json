@@ -1,0 +1,12 @@
+{
+  "version": "1.1",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/Shipment%20Track.exe",
+  "sha256": "0cfd726935cd35de73316850275fe89e079af623bb0e4e7afcabef48a6864e7d",
+  "notes": [
+    "修复 FedEx API 凭据更换与验证问题",
+    "DHL 只按当前状态判断送达，支持自定义状态",
+    "DSV 详情页增加链接与位置点击双重兜底",
+    "网页承运商可选择实际 Edge 或 Google Chrome",
+    "新增程序内更新检查与更新日志"
+  ]
+}

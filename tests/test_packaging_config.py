@@ -1,4 +1,6 @@
 import json
+import hashlib
+import re
 import unittest
 from pathlib import Path
 
@@ -113,6 +115,19 @@ class PackagingConfigTests(unittest.TestCase):
         ignore = (ROOT / ".gitignore").read_text("utf-8")
         self.assertIn("data/", ignore)
         self.assertIn("modules/fedex_status_cache.json", ignore)
+
+    def test_published_update_manifest_matches_executable_and_app_version(self):
+        manifest = json.loads((ROOT / "release" / "update.json").read_text("utf-8"))
+        executable = ROOT / "release" / "Shipment Track.exe"
+        main_source = (ROOT / "modules" / "app_updater.py").read_text("utf-8")
+        self.assertTrue(executable.is_file())
+        self.assertEqual(
+            manifest["sha256"],
+            hashlib.sha256(executable.read_bytes()).hexdigest(),
+        )
+        current = re.search(r'^CURRENT_VERSION = "([^"]+)"', main_source, re.MULTILINE)
+        self.assertIsNotNone(current)
+        self.assertEqual(current.group(1), manifest["version"])
 
 
 if __name__ == "__main__":
