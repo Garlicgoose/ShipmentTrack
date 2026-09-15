@@ -1,4 +1,5 @@
 import os
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -48,6 +49,10 @@ class NativeUiTests(unittest.TestCase):
         self.assertNotIn("ShipmentTrack", labels)
         self.assertNotIn("物流查询工作台", labels)
         self.assertTrue(Path(PROFILE_AVATAR).is_file())
+        self.assertEqual(
+            "a5aa5690996a6e28222789ba9de6d022fcae276ce9126a039fa22cc0e7ed7a38",
+            hashlib.sha256(Path(PROFILE_AVATAR).read_bytes()).hexdigest(),
+        )
         sidebar = self.window.findChild(QFrame, "sidebar")
         self.assertEqual(168, sidebar.width())
         popup_labels = [
