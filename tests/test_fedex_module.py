@@ -22,6 +22,9 @@ def piece(number, code="DL", description="Delivered", delivered_at=""):
 
 
 class FedexBusinessRulesTests(unittest.TestCase):
+    def setUp(self):
+        fedex._token_cache.update(token="", expires=0.0, credential_id="")
+
     def test_default_status_cache_is_in_data_folder(self):
         self.assertEqual("data", fedex.STATUS_CACHE_FILE.parent.name)
         self.assertEqual("fedex_status_cache.json", fedex.STATUS_CACHE_FILE.name)
@@ -78,6 +81,27 @@ class FedexBusinessRulesTests(unittest.TestCase):
     def test_status_only_never_downloads_pod(self):
         result = self.query_live([piece("P1"), piece("P2")], save_pdf=False)
         self.assertEqual("Y", result["is_delivered"])
+
+    def test_oauth_cache_is_bound_to_trimmed_credentials(self):
+        response_one = mock.Mock(status_code=200)
+        response_one.json.return_value = {"access_token": "token-one", "expires_in": 3600}
+        response_two = mock.Mock(status_code=200)
+        response_two.json.return_value = {"access_token": "token-two", "expires_in": 3600}
+        session = mock.Mock()
+        session.post.side_effect = [response_one, response_two]
+
+        self.assertEqual("token-one", fedex._get_token(" key-one ", " secret ", session))
+        self.assertEqual("token-one", fedex._get_token("key-one", "secret", session))
+        self.assertEqual("token-two", fedex._get_token("key-two", "secret", session))
+        self.assertEqual(2, session.post.call_count)
+        first_form = session.post.call_args_list[0].kwargs["data"]
+        self.assertEqual("key-one", first_form["client_id"])
+        self.assertEqual("secret", first_form["client_secret"])
+
+    def test_validate_credentials_reports_missing_fields_without_request(self):
+        ok, message = fedex.validate_fedex_credentials("", "secret")
+        self.assertFalse(ok)
+        self.assertIn("未填写完整", message)
 
     def test_temporary_failure_cache_fallback(self):
         failed = {

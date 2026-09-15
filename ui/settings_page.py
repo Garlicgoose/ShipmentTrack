@@ -20,7 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from modules.settings_store import FilenameMappingRule
+from modules import fedex_module
 from ui.components import PathField
+from ui.workers import TaskWorker
 from units import detect_chrome_path
 
 
@@ -53,11 +55,16 @@ class SettingsPage(QWidget):
         self.fedex_key = QLineEdit()
         self.fedex_secret = QLineEdit()
         self.fedex_secret.setEchoMode(QLineEdit.Password)
+        self.test_fedex_button = QPushButton("验证 FedEx API")
+        self.test_fedex_button.setObjectName("smallButton")
+        self.test_fedex_button.clicked.connect(self.test_fedex_api)
+        self._fedex_test_worker = None
         self.ei_email = QLineEdit()
         self.ei_password = QLineEdit()
         self.ei_password.setEchoMode(QLineEdit.Password)
         credentials_form.addRow("FedEx API Key", self.fedex_key)
         credentials_form.addRow("FedEx API Secret", self.fedex_secret)
+        credentials_form.addRow("", self.test_fedex_button)
         credentials_form.addRow("EI 账号", self.ei_email)
         credentials_form.addRow("EI 密码", self.ei_password)
         general_layout.addWidget(credentials, 2)
@@ -289,6 +296,39 @@ class SettingsPage(QWidget):
         self.chrome_path.set_value(path)
         self.message.emit("已检测到 Chromium" if path else "没有检测到 Chromium，请手动选择 chrome.exe")
 
+    def test_fedex_api(self):
+        if self._fedex_test_worker and self._fedex_test_worker.isRunning():
+            return
+        key = self.fedex_key.text().strip()
+        secret = self.fedex_secret.text().strip()
+        if not key or not secret:
+            QMessageBox.warning(self, "ShipmentTrack", "请先填写完整的 FedEx API Key 和 Secret。")
+            return
+        self.test_fedex_button.setEnabled(False)
+        self.test_fedex_button.setText("验证中…")
+
+        def task(log, progress, item):
+            item(fedex_module.validate_fedex_credentials(key, secret))
+
+        self._fedex_test_worker = TaskWorker(task, self)
+        self._fedex_test_worker.item.connect(self._show_fedex_test_result)
+        self._fedex_test_worker.finished_ok.connect(self._finish_fedex_test)
+        self._fedex_test_worker.start()
+
+    def _show_fedex_test_result(self, result):
+        ok, message = result
+        if ok:
+            QMessageBox.information(self, "ShipmentTrack", message)
+        else:
+            QMessageBox.warning(self, "ShipmentTrack", f"FedEx API 验证失败：\n{message}")
+
+    def _finish_fedex_test(self, ok, error):
+        self.test_fedex_button.setEnabled(True)
+        self.test_fedex_button.setText("验证 FedEx API")
+        if not ok:
+            QMessageBox.warning(self, "ShipmentTrack", f"FedEx API 验证失败：\n{error}")
+        self._fedex_test_worker = None
+
     def save(self):
         rules = [rule.normalized() for rule in self.mapping_rules()]
         rules = [
@@ -320,7 +360,7 @@ class SettingsPage(QWidget):
         settings = dict(self.settings)
         settings.update({
             "fedex_api_key": self.fedex_key.text().strip(),
-            "fedex_api_secret": self.fedex_secret.text(),
+            "fedex_api_secret": self.fedex_secret.text().strip(),
             "tracking_ei_email": self.ei_email.text().strip(),
             "tracking_ei_password": self.ei_password.text(),
             "tracking_input_file": self.tracking_input.value(),

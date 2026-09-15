@@ -205,6 +205,17 @@ class NativeUiTests(unittest.TestCase):
             self.store.load_delivery_statuses()["EI"],
         )
 
+    def test_settings_page_exposes_fedex_api_validation(self):
+        page = self.window.settings_page
+        self.assertEqual("验证 FedEx API", page.test_fedex_button.text())
+        page.fedex_secret.setText(" secret-with-spaces ")
+        with mock.patch.object(page.store, "save_settings") as save_settings:
+            page.save()
+        self.assertEqual(
+            "secret-with-spaces",
+            save_settings.call_args.args[0]["fedex_api_secret"],
+        )
+
     def test_excel_page_is_single_combined_workflow(self):
         self.assertEqual(6, self.window.excel_table.columnCount())
         headers = [

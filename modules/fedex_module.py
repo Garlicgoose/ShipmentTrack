@@ -21,6 +21,7 @@ import time
 import json
 import random
 import threading
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -63,6 +64,7 @@ PDF_DIR: Optional[Path] = DEFAULT_PDF_DIR
 _token_cache: Dict[str, Any] = {
     "token": "",
     "expires": 0.0,
+    "credential_id": "",
 }
 
 
@@ -251,8 +253,19 @@ def _get_token(
     api_secret: str,
     session: Optional[requests.Session] = None,
 ) -> str:
+    api_key = str(api_key or "").strip()
+    api_secret = str(api_secret or "").strip()
+    if not api_key or not api_secret:
+        raise RuntimeError("FedEx API Key/Secret 未填写完整")
+    credential_id = hashlib.sha256(
+        f"{api_key}\0{api_secret}".encode("utf-8")
+    ).hexdigest()
     now = time.time()
-    if _token_cache["token"] and float(_token_cache["expires"]) > now + 60:
+    if (
+        _token_cache["token"]
+        and _token_cache.get("credential_id") == credential_id
+        and float(_token_cache["expires"]) > now + 60
+    ):
         return str(_token_cache["token"])
 
     http = session or requests.Session()
@@ -289,7 +302,21 @@ def _get_token(
 
     _token_cache["token"] = token
     _token_cache["expires"] = now + expires_in
+    _token_cache["credential_id"] = credential_id
     return token
+
+
+def validate_fedex_credentials(
+    api_key: str,
+    api_secret: str,
+    session: Optional[requests.Session] = None,
+) -> Tuple[bool, str]:
+    """验证 FedEx 凭据，不执行运单查询，也不会返回 token。"""
+    try:
+        _get_token(api_key, api_secret, session=session)
+        return True, "FedEx API 验证通过"
+    except Exception as exc:
+        return False, str(exc)
 
 
 # ============================================================
