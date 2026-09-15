@@ -1,7 +1,7 @@
 {
   "version": "1.1",
-  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/0eb79d1d50039ddf08ba74e486d4327fd6eb422c/release/Shipment%20Track.exe",
-  "sha256": "9fb3b3d37d1304f8649c986b1ec281bd061faff403e0e2d4bd37ed6e1624fe0e",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/6e8bd427cabdd21705d3b168d0954183e8f90d73/release/Shipment%20Track.exe",
+  "sha256": "9d7a750f4eab3ae6dcb6223413f6d8502157796e0aebf16eb7e4eb7b146e23dc",
   "notes": [
     "修复 FedEx API 凭据更换与验证问题",
     "DHL 只按当前状态判断送达，支持自定义状态",
