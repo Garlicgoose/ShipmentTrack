@@ -57,6 +57,7 @@ def run_tracking(
     progress=None,
     result=None,
     delivery_statuses=None,
+    audit_rates=None,
 ):
     """执行批量查询。三个回调用于日志、进度和逐条结果。"""
     log = log or (lambda msg: None)
@@ -250,7 +251,7 @@ def run_tracking(
 
     if save_pdf:
         audit_file = output_path / "pod_audit.xlsx"
-        audit_items = audit_pod_sample(results, audit_file)
+        audit_items = audit_pod_sample(results, audit_file, sample_rates=audit_rates)
         audit_by_tracking = _aggregate_audit_results(audit_items)
         for item in results:
             item["POD抽查"] = audit_by_tracking.get(str(item["运单号"]), "")

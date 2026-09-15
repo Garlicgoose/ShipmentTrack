@@ -77,6 +77,13 @@ class NativeUiTests(unittest.TestCase):
             set(self.window.settings_page.browser_buttons),
         )
         self.assertTrue(self.window.settings_page.browser_buttons["edge"].isChecked())
+        self.assertEqual(
+            {"FedEx": 20, "DHL": 5, "UPS": 5, "EI": 5, "DSV": 5},
+            {
+                carrier: spin.value()
+                for carrier, spin in self.window.settings_page.audit_rate_inputs.items()
+            },
+        )
         self.assertEqual("1.1", APP_VERSION)
         popup_buttons = [
             button.text() for button in self.window.profile_popup.findChildren(QPushButton)
@@ -232,6 +239,14 @@ class NativeUiTests(unittest.TestCase):
             "secret-with-spaces",
             save_settings.call_args.args[0]["fedex_api_secret"],
         )
+
+    def test_settings_page_saves_independent_pod_audit_rates(self):
+        page = self.window.settings_page
+        expected = {"FedEx": 0, "DHL": 15, "UPS": 35, "EI": 65, "DSV": 100}
+        for carrier, value in expected.items():
+            page.audit_rate_inputs[carrier].setValue(value)
+        page.save()
+        self.assertEqual(expected, self.store.load_settings()["pod_audit_rates"])
 
     def test_excel_page_is_single_combined_workflow(self):
         self.assertEqual(6, self.window.excel_table.columnCount())

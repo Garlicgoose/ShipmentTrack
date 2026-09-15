@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """设置页：账号、路径、外接 Chromium 和文件名映射。"""
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from modules.settings_store import FilenameMappingRule
+from modules.settings_store import DEFAULT_POD_AUDIT_RATES, FilenameMappingRule
 from modules import fedex_module
 from ui.components import PathField
 from ui.workers import TaskWorker
@@ -189,6 +190,26 @@ class SettingsPage(QWidget):
         status_actions.addStretch(1)
         status_layout.addLayout(status_actions)
         mapping_page_layout.addWidget(statuses)
+
+        audit_rates = QGroupBox("POD 抽查比例")
+        audit_layout = QHBoxLayout(audit_rates)
+        audit_layout.setSpacing(12)
+        self.audit_rate_inputs = {}
+        for carrier, default in DEFAULT_POD_AUDIT_RATES.items():
+            field_layout = QVBoxLayout()
+            field_layout.setSpacing(4)
+            label = QLabel(carrier)
+            label.setObjectName("muted")
+            spin = QSpinBox()
+            spin.setRange(0, 100)
+            spin.setSuffix(" %")
+            spin.setValue(default)
+            spin.setAlignment(Qt.AlignCenter)
+            self.audit_rate_inputs[carrier] = spin
+            field_layout.addWidget(label)
+            field_layout.addWidget(spin)
+            audit_layout.addLayout(field_layout)
+        mapping_page_layout.addWidget(audit_rates)
         mapping_page_layout.addStretch(1)
         self.settings_tabs.addTab(mapping_page, "映射")
         outer.addWidget(self.settings_tabs, 1)
@@ -218,6 +239,9 @@ class SettingsPage(QWidget):
         self.browser_buttons[browser_type].setChecked(True)
         self.browser_path.set_value(self.settings.get("browser_path", ""))
         self.minimize_browser.setChecked(bool(self.settings["minimize_browser"]))
+        rates = self.settings.get("pod_audit_rates", DEFAULT_POD_AUDIT_RATES)
+        for carrier, spin in self.audit_rate_inputs.items():
+            spin.setValue(int(rates.get(carrier, DEFAULT_POD_AUDIT_RATES[carrier])))
         self.mapping_table.setRowCount(0)
         for rule in self.store.load_mappings():
             self.add_mapping(rule)
@@ -405,6 +429,10 @@ class SettingsPage(QWidget):
             "browser_path": self.browser_path.value(),
             "chrome_path": "",
             "minimize_browser": self.minimize_browser.isChecked(),
+            "pod_audit_rates": {
+                carrier: spin.value()
+                for carrier, spin in self.audit_rate_inputs.items()
+            },
         })
         self.store.save_settings(settings)
         self.store.save_mappings(rules)

@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from modules.settings_store import (
+    DEFAULT_POD_AUDIT_RATES,
     FilenameMapper,
     FilenameMappingRule,
     SettingsStore,
@@ -40,6 +41,22 @@ class SettingsStoreTests(unittest.TestCase):
         raw = self.store.settings_path.read_text("utf-8")
         self.assertNotIn("fedex-secret", raw)
         self.assertNotIn("ei-password", raw)
+
+    def test_pod_audit_rates_round_trip_and_clamp_each_carrier(self):
+        settings = self.store.load_settings()
+        self.assertEqual(DEFAULT_POD_AUDIT_RATES, settings["pod_audit_rates"])
+        settings["pod_audit_rates"] = {
+            "FedEx": 0, "DHL": 25, "UPS": 50, "EI": 75, "DSV": 100
+        }
+        self.store.save_settings(settings)
+        self.assertEqual(settings["pod_audit_rates"], self.store.load_settings()["pod_audit_rates"])
+
+        settings["pod_audit_rates"]["FedEx"] = -10
+        settings["pod_audit_rates"]["DSV"] = 150
+        self.store.save_settings(settings)
+        loaded = self.store.load_settings()["pod_audit_rates"]
+        self.assertEqual(0, loaded["FedEx"])
+        self.assertEqual(100, loaded["DSV"])
 
     def test_default_and_custom_mapping_round_trip(self):
         defaults = self.store.load_mappings()

@@ -691,6 +691,7 @@ class MainWindow(QMainWindow):
                 progress=progress,
                 result=item,
                 delivery_statuses=delivery_statuses,
+                audit_rates=run_settings.get("pod_audit_rates"),
             )
 
         self._tracking_worker = TaskWorker(task, self)

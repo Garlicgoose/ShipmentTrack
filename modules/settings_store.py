@@ -13,6 +13,15 @@ from typing import Iterable, Optional
 from units import get_base_path, get_data_path, read_json, write_json
 
 
+DEFAULT_POD_AUDIT_RATES = {
+    "FedEx": 20,
+    "DHL": 5,
+    "UPS": 5,
+    "EI": 5,
+    "DSV": 5,
+}
+
+
 DEFAULT_SETTINGS = {
     "tracking_input_file": "",
     "tracking_output_dir": "",
@@ -29,6 +38,7 @@ DEFAULT_SETTINGS = {
     "browser_path": "",
     "minimize_browser": True,
     "only_arrival": False,
+    "pod_audit_rates": DEFAULT_POD_AUDIT_RATES,
 }
 
 
@@ -247,6 +257,7 @@ class SettingsStore:
 
     def load_settings(self) -> dict:
         result = dict(DEFAULT_SETTINGS)
+        result["pod_audit_rates"] = dict(DEFAULT_POD_AUDIT_RATES)
         data = self._load_with_legacy(
             self.settings_path, self._legacy_settings_path, {}
         )
@@ -256,6 +267,15 @@ class SettingsStore:
             result["excel_output_dir"] = str(Path(result["excel_output_file"]).parent)
         for key in SECRET_FIELDS:
             result[key] = unprotect_secret(result.get(key, ""))
+        rates = result.get("pod_audit_rates")
+        if not isinstance(rates, dict):
+            rates = {}
+        result["pod_audit_rates"] = {
+            carrier: max(0, min(100, int(rates.get(carrier, default))))
+            if str(rates.get(carrier, default)).strip().lstrip("-").isdigit()
+            else default
+            for carrier, default in DEFAULT_POD_AUDIT_RATES.items()
+        }
         if not result.get("browser_path") and result.get("chrome_path"):
             legacy = Path(str(result["chrome_path"]))
             if legacy.name.casefold() in {"msedge.exe", "chrome.exe"}:
@@ -272,6 +292,12 @@ class SettingsStore:
         }
         for key in SECRET_FIELDS:
             safe[key] = protect_secret(safe.get(key, ""))
+        rates = safe.get("pod_audit_rates")
+        rates = rates if isinstance(rates, dict) else {}
+        safe["pod_audit_rates"] = {
+            carrier: max(0, min(100, int(rates.get(carrier, default))))
+            for carrier, default in DEFAULT_POD_AUDIT_RATES.items()
+        }
         write_json(self.settings_path, safe)
 
     def load_mappings(self) -> list[FilenameMappingRule]:

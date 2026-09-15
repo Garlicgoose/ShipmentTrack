@@ -54,7 +54,7 @@ class PodAuditTests(unittest.TestCase):
         self.assertEqual("人工复核", item.result)
         self.assertFalse(item.delivered_found)
 
-    def test_fedex_samples_twenty_percent_twice_and_others_five_percent(self):
+    def test_each_carrier_uses_its_own_zero_to_hundred_percent_rate(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             results = []
@@ -63,43 +63,47 @@ class PodAuditTests(unittest.TestCase):
                 detail_pdf = root / f"{index}+.pdf"
                 pdf.write_bytes(b"%PDF-test")
                 detail_pdf.write_bytes(b"%PDF-test")
+                carrier = ("FedEx", "DHL", "UPS", "EI", "DSV")[index // 10]
                 results.append({
                     "运单号": str(index),
-                    "快递公司": "FedEx" if index < 10 else (
-                        "DHL" if index % 2 else "DSV"
-                    ),
+                    "快递公司": carrier,
                     "状态": "Delivered",
                     "POD文件": str(pdf),
-                    "POD详情文件": str(detail_pdf) if index < 10 else "",
+                    "POD详情文件": str(detail_pdf) if carrier == "FedEx" else "",
                     "备注": "",
                 })
-            selected = choose_pod_samples(results, rng=random.Random(7))
-        self.assertEqual(6, len(selected))
+            selected = choose_pod_samples(
+                results,
+                sample_rates={"FedEx": 10, "DHL": 20, "UPS": 30, "EI": 40, "DSV": 50},
+                rng=random.Random(7),
+            )
+        self.assertEqual(16, len(selected))
         reasons = [item[1] for item in selected]
-        self.assertEqual(2, reasons.count("其他承运商POD随机抽查5%"))
-        self.assertEqual(2, reasons.count("FedEx POD随机抽查20%-查询主页"))
-        self.assertEqual(2, reasons.count("FedEx POD随机抽查20%-详情页"))
+        self.assertEqual(2, reasons.count("FedEx 10%随机抽查"))
+        self.assertEqual(2, reasons.count("DHL 20%随机抽查"))
+        self.assertEqual(3, reasons.count("UPS 30%随机抽查"))
+        self.assertEqual(4, reasons.count("EI 40%随机抽查"))
+        self.assertEqual(5, reasons.count("DSV 50%随机抽查"))
 
-    def test_fedex_web_pod_requires_signed_for_field(self):
-        signed = FakeReader(
-            "Tracking number 492670345899. Status: Delivered. Signed for by: A TEST",
-        )
-        with mock.patch("modules.pod_audit.PdfReader", return_value=signed):
-            item = inspect_pod("492670345899.pdf", "492670345899", "FedEx")
-        self.assertEqual("通过", item.result)
-        self.assertTrue(item.signature_found)
+    def test_zero_percent_disables_one_carrier_without_affecting_others(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            rows = []
+            for carrier in ("FedEx", "DHL"):
+                pdf = root / f"{carrier}.pdf"
+                detail = root / f"{carrier}+.pdf"
+                pdf.write_bytes(b"%PDF-test")
+                detail.write_bytes(b"%PDF-test")
+                rows.append({"运单号": carrier, "快递公司": carrier, "状态": "Delivered",
+                             "POD文件": str(pdf), "POD详情文件": str(detail)})
+            selected = choose_pod_samples(
+                rows, sample_rates={"FedEx": 0, "DHL": 100}, rng=random.Random(1)
+            )
+        self.assertEqual(["DHL"], [item[0]["快递公司"] for item in selected])
 
-        unsigned = FakeReader(
-            "Tracking number 492670345899. Status: Delivered.",
-        )
-        with mock.patch("modules.pod_audit.PdfReader", return_value=unsigned):
-            item = inspect_pod("492670345899.pdf", "492670345899", "FedEx")
-        self.assertEqual("人工复核", item.result)
-        self.assertFalse(item.signature_found)
-        self.assertIn("签收人字段", item.details)
-
-        chinese = FakeReader("运单号 492670345899。状态：已送达。签收人：张三")
-        with mock.patch("modules.pod_audit.PdfReader", return_value=chinese):
+    def test_fedex_web_pod_no_longer_requires_signature_field(self):
+        delivered = FakeReader("Tracking number 492670345899. Status: Delivered.")
+        with mock.patch("modules.pod_audit.PdfReader", return_value=delivered):
             item = inspect_pod("492670345899.pdf", "492670345899", "FedEx")
         self.assertEqual("通过", item.result)
 
@@ -135,12 +139,15 @@ class PodAuditTests(unittest.TestCase):
             items = audit_pod_sample([result], output, inspector=fake_inspector)
             workbook = load_workbook(output, data_only=True)
         self.assertEqual(1, len(items))
-        self.assertEqual("其他承运商POD随机抽查5%", items[0].sample_reason)
+        self.assertEqual("DHL 5%随机抽查", items[0].sample_reason)
         self.assertEqual("POD抽查", workbook.active.title)
         self.assertEqual("Delivered", workbook.active["E2"].value)
-        self.assertEqual("Status: Delivered", workbook.active["H2"].value)
-        self.assertEqual("否", workbook.active["J2"].value)
+        self.assertEqual("POD", workbook.active["C2"].value)
+        self.assertEqual(0.05, workbook.active["D2"].value)
+        self.assertEqual("Status: Delivered", workbook.active["I2"].value)
         self.assertEqual("通过", workbook.active["K2"].value)
+        headers = [cell.value for cell in workbook.active[1]]
+        self.assertNotIn("FedEx签收人字段", headers)
 
     def test_fedex_selected_shipment_audits_both_pdf_paths(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -155,7 +162,7 @@ class PodAuditTests(unittest.TestCase):
                 seen.append(str(pdf_file))
                 return PodAuditItem(
                     str(tracking_number), str(carrier), str(pdf_file), "", "",
-                    True, True, True, "Delivered", "通过", "", True,
+                    True, True, True, "Delivered", "通过", "",
                 )
 
             items = audit_pod_sample(
