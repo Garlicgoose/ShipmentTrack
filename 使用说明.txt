@@ -1,4 +1,4 @@
-# ShipmentTrack v1.0
+# ShipmentTrack v1.1
 
 快递批量查询工具（DHL / DSV / EI / UPS / FedEx），Garlicgoose 制作。
 
@@ -35,13 +35,13 @@
    - FedEx API Key / Secret（developer.fedex.com 注册获取）
    - FedEx 网页 POD 使用 Windows 自带的真实 Edge；首次启动会预热 30 秒，
      如果公司要求登录 Edge 账号，请在这段时间内完成登录
-   - Chromium：模拟浏览器路径。点击「自动检测 Chromium」，或手动指向
-     外接 Chromium 的 chrome.exe
+   - 实际浏览器：选择 Microsoft Edge 或 Google Chrome，然后自动检测或
+     手动选择对应的 msedge.exe / chrome.exe
    - 勾选「最小化」：浏览器弹出后自动最小化（后台运行，不挡视线）
    - 文件名映射：添加文件名关键字、检验表类型、归总类别和备注，保存后
      自动写入 data\filename_mappings.json；归总类别只能填写光联或 MPO
-   - 货代抵达状态：可为 EI、DSV 添加额外完整状态字段，例如“交给其他
-     清关人”。清理空格和末尾标点后仍要求完整匹配
+   - 送达状态：可为 DHL、EI、DSV 添加额外完整状态字段。DHL 仅使用当前
+     状态区域，清理空格和末尾标点后仍要求完整匹配
 3. 在「跟踪」页面选择输入 Excel 和输出文件夹，点击「开始查询」
 4. 在「Excel 合并与核对」页面选择检验表、Droplist 中至少一个文件夹和
    输出文件夹，点击「开始合并与核对」
@@ -61,8 +61,8 @@ Shipment Track\
 └── 使用说明.txt          本文件
 ```
 
-Chromium 不在程序目录中。请单独准备 Chromium，并在设置页自动检测或手动
-选择 chrome.exe。
+程序使用电脑已安装的 Edge 或 Google Chrome，不需要另行下载 Chromium。
+头像弹窗中可以查看 v1.1 更新日志或手动检查 GitHub 新版本。
 
 ## 授权说明（给使用者）
 
@@ -74,11 +74,11 @@ Chromium 不在程序目录中。请单独准备 Chromium，并在设置页自�
 ## 常见问题
 
 - **启动报 "Unable to start"**：网络不可用或未授权，检查网络/联系管理员
-- **FedEx 查询报错**：确认 API Key/Secret 正确，并确认 Windows 自带 Edge
-  可以正常访问 fedex.com
+- **FedEx 查询报错**：先在设置页点击“验证 FedEx API”，再确认 Windows
+  自带 Edge 可以正常访问 fedex.com
 - **浏览器没弹出来**：设置了「最小化」，任务栏能看到；取消勾选设置中的
   「最小化」即可正常显示
 - **POD 出现 Cookie 或聊天框**：程序会在主页和详情页打印前分别关闭或隐藏，
   不应遮挡运输记录
-- **同事电脑没有 Python / 库**：不需要，exe 已内置程序运行库；Chromium
-  需要单独准备并在设置页指定路径
+- **同事电脑没有 Python / 库**：不需要，exe 已内置程序运行库；电脑只需
+  安装 Edge（Windows 默认具备）或 Google Chrome

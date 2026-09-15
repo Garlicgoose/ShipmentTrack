@@ -5,7 +5,7 @@
 - Python 3.12
 - PySide6 Widgets 原生桌面界面
 - requests：FedEx 官方 API
-- Playwright：DHL、UPS、EI、DSV 驱动外接 Chromium；FedEx POD 通过 CDP
+- Playwright CDP：DHL、UPS、EI、DSV 接管系统实际 Edge/Chrome；FedEx POD
   接管系统真实 Microsoft Edge
 - openpyxl：跟踪结果、检验表和 Droplist
 - pypdf：POD 抽查；FedEx 验证官网签收人字段，其他承运商验证送达字段
@@ -33,7 +33,7 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 3. `modules/tracking_runner.py` 清洗运单、复用承运商会话并实时回传结果。
 4. FedEx API 只查询状态；送达后由 `FedExEdgePodSession` 启动真实 Edge，
    打印查询主页和从主页点击进入的详情页。其他承运商由
-   `TrackingCarrierSession` 使用外接 Chromium。
+   `TrackingCarrierSession` 通过 CDP 使用实际 Edge 或 Google Chrome。
 5. 只有抵达货件允许下载 POD；只查状态模式不会下载 POD。
 6. FedEx 随机抽查 20% 运单，且每个样本同时检查主页和详情页；其他承运商
    随机抽查 5%。结果写入 `pod_audit.xlsx`。
@@ -45,7 +45,8 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 ## 映射配置
 
 - `data/filename_mappings.json`：检验表文件名关键字、详细类型及光联/MPO 归总类别。
-- `data/delivery_status_mappings.json`：EI、DSV 的额外严格抵达状态。
+- `data/delivery_status_mappings.json`：DHL、EI、DSV 的额外严格抵达状态。
+- `data/browser_profiles/`：各承运商的实际浏览器持久化配置。
 - `data/settings.json`：界面设置；密码和 Secret 使用 Windows DPAPI 加密。
 - `data/fedex_status_cache.json`：FedEx 状态缓存。
 - `data/fedex_edge_profile/`：FedEx 真实 Edge 的持久化 Cookie 和站点状态。
@@ -61,4 +62,5 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 
 ## 打包
 
-`build.ps1` 使用 `ShipmentTrack.spec` 构建。Playwright 驱动进入产物，Chromium 浏览器本体不进入产物，由设置页自动检测或手动指定。
+`build.ps1` 使用 `ShipmentTrack.spec` 构建。Playwright 驱动进入产物，浏览器本体
+不进入产物；设置页选择并检测电脑已安装的 Edge 或 Google Chrome。

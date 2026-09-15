@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec: ShipmentTrack（onedir，Chromium 作为外接依赖）。
+"""PyInstaller spec: ShipmentTrack（onedir，使用系统实际浏览器）。
 
-Playwright 驱动仍需随程序发布，但 Chromium 浏览器本体不进入产物。
-程序通过自动检测或设置页手动选择外部 chrome.exe。
+Playwright 驱动仍需随程序发布，但 Edge/Chrome 浏览器本体不进入产物。
+程序通过设置页选择并检测系统已安装的浏览器。
 """
 from pathlib import Path
 
@@ -14,6 +14,7 @@ datas = [
     ("assets/app_icon.ico", "assets"),
     ("assets/app_icon.png", "assets"),
     ("assets/github_avatar.jpg", "assets"),
+    ("CHANGELOG.md", "."),
 ]
 binaries = []
 hiddenimports = [

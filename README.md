@@ -1,4 +1,4 @@
-# ShipmentTrack v1.0
+# ShipmentTrack v1.1
 
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
@@ -6,7 +6,6 @@ PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 ## 运行（源码）
 ```
 pip install -r requirements.txt
-playwright install chromium  # Chromium 外接，不进入程序安装包
 python main.py
 ```
 
@@ -16,7 +15,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 # 1) PyInstaller ShipmentTrack.spec（onedir，collect_all playwright）
 # 2) 将两份默认映射 JSON 复制到 data / 复制使用说明.txt
 # 产物: dist\Shipment Track\Shipment Track.exe（整文件夹拷贝使用）
-# Chromium 由用户在设置页自动检测或手动选择 chrome.exe
+# Edge / Google Chrome 由用户在设置页选择并自动检测
 # 注意: build.ps1 必须保存为 UTF-8 with BOM（PS5.1 中文乱码问题）
 ```
 
@@ -31,8 +30,9 @@ powershell -ExecutionPolicy Bypass -File build.ps1
   已选一侧会生成对应文件，界面未选侧保持空白。两侧都有数据时按日期与
   光联/MPO 归总类别比较数量。检验表明细仍保留澳车、港车、814S 等原类型，
   `类型箱数` Sheet 另行汇总每天各原类型的箱数。
-- 设置：维护 FedEx API、EI 账号、默认路径、外接 Chromium 和文件名映射。
-- 货代状态：可为 EI、DSV 添加额外抵达状态，标准化空格和末尾标点后严格匹配。
+- 设置：维护 FedEx API、EI 账号、默认路径、实际浏览器和文件名映射。
+- 送达状态：可为 DHL、EI、DSV 添加额外状态，仅与当前状态完整匹配。
+- 更新：启动后从 GitHub 静默检查新版本；头像弹窗可查看更新日志或手动检查。
 
 界面中的 POD 绿色圆点、查询结果、清洗文件、POD 抽查和两份合并 Excel
 均可直接点击打开。
@@ -76,7 +76,16 @@ ui/（PySide6 原生界面） / assets/（图标与本地头像）
 docs/ARCHITECTURE.md（框架与目录职责）
 E:/python_modules/authorization（共享授权与机器码包）
 data/filename_mappings.json（由设置页维护）
-data/delivery_status_mappings.json（EI/DSV 额外抵达状态）
+data/delivery_status_mappings.json（DHL/EI/DSV 额外抵达状态）
 data/settings.json（界面设置，首次保存后生成）
 requirements.txt（经过打包验证的依赖版本）
 ```
+
+## 1.1 浏览器与更新
+
+- DHL、UPS、EI、DSV 使用电脑已安装的 Microsoft Edge 或 Google Chrome，
+  不再依赖 Playwright 下载的模拟 Chromium 浏览器。
+- DSV 详情页依次尝试实际结果链接、文字元素和结果卡片位置点击。
+- DHL 的 Delivered 只允许来自当前状态区域，历史事件全文不再确认送达。
+- 设置页可直接验证 FedEx API；OAuth token 按 API 凭据隔离。
+- 更新文件从 GitHub 下载后必须通过 SHA-256 校验，程序退出后再安全替换 EXE。

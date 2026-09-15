@@ -11,7 +11,7 @@ class PackagingConfigTests(unittest.TestCase):
         script = (ROOT / "build.ps1").read_text("utf-8-sig")
         self.assertNotIn("copy chromium", script.casefold())
         self.assertNotIn("chrome-win64\\*", script)
-        self.assertIn("外接 Chromium", script)
+        self.assertIn("Edge/Chrome", script)
         self.assertIn("delivery_status_mappings.json", script)
 
     def test_build_uses_data_folder_without_machine_id_utility(self):
@@ -60,12 +60,12 @@ class PackagingConfigTests(unittest.TestCase):
         )
         self.assertEqual({"DHL": [], "EI": [], "DSV": []}, delivery)
 
-    def test_documentation_describes_external_chromium(self):
+    def test_documentation_describes_real_browser_and_updates(self):
         readme = (ROOT / "README.md").read_text("utf-8")
         guide = (ROOT / "使用说明.txt").read_text("utf-8")
-        self.assertIn("Chromium 外接", readme)
-        self.assertIn("Chromium 不在程序目录中", guide)
-        self.assertIn("ShipmentTrack v1.0", readme)
+        self.assertIn("Microsoft Edge 或 Google Chrome", readme)
+        self.assertIn("不需要另行下载 Chromium", guide)
+        self.assertIn("ShipmentTrack v1.1", readme)
         self.assertIn("真实 Microsoft Edge", readme)
         self.assertIn("随机抽取 20%", readme)
         self.assertIn("合并检验表.xlsx", readme)
@@ -76,6 +76,7 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("delivery_status_mappings.json", readme)
         self.assertIn("data/settings.json", readme)
         self.assertIn("可任选一侧单独合并", readme)
+        self.assertIn("SHA-256", readme)
         self.assertIn("`类型箱数` Sheet", readme)
         self.assertIn("至少一个文件夹", guide)
         self.assertIn("Ed25519 公钥", readme)

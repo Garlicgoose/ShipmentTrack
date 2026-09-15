@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QLabel,
     QScrollArea,
+    QPushButton,
     QTableWidgetItem,
 )
 from PySide6.QtTest import QTest
@@ -76,6 +77,11 @@ class NativeUiTests(unittest.TestCase):
             set(self.window.settings_page.browser_buttons),
         )
         self.assertTrue(self.window.settings_page.browser_buttons["edge"].isChecked())
+        self.assertEqual("1.1", APP_VERSION)
+        popup_buttons = [
+            button.text() for button in self.window.profile_popup.findChildren(QPushButton)
+        ]
+        self.assertEqual(["更新日志", "检查更新"], popup_buttons)
 
     def test_tracking_page_has_smooth_progress_and_live_table(self):
         self.assertEqual(240, self.window._tracking_progress_anim.duration())

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """ShipmentTrack 原生主窗口。"""
 from pathlib import Path
+import sys
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from modules.excel_reconcile import merge_and_reconcile_excel
+from modules import app_updater
 from modules.settings_store import SettingsStore
 from ui.components import (
     ClickableFrame,
@@ -55,7 +57,7 @@ from units import detect_browser_path, get_resource_path
 APP_ICON = str(get_resource_path() / "assets" / "app_icon.png")
 PROFILE_AVATAR = str(get_resource_path() / "assets" / "github_avatar.jpg")
 PROFILE_NAME = "Garlicgoose"
-APP_VERSION = "1.0"
+APP_VERSION = app_updater.CURRENT_VERSION
 APP_FEATURES = (
     "查询 FedEx、DHL、UPS、EI、DSV 运单状态",
     "下载已送达货件 POD",
@@ -77,6 +79,9 @@ class MainWindow(QMainWindow):
 
         self._tracking_worker = None
         self._excel_worker = None
+        self._update_check_worker = None
+        self._update_download_worker = None
+        self._update_manual = False
         self._page_animation = None
         self._page_overlay = None
         self._page_transitioning = False
@@ -94,6 +99,8 @@ class MainWindow(QMainWindow):
         self._tracking_timer.setInterval(500)
         self._tracking_timer.timeout.connect(self._update_tracking_elapsed)
         self._build_ui()
+        if getattr(sys, "frozen", False):
+            QTimer.singleShot(2500, lambda: self.check_for_updates(manual=False))
 
     def _build_ui(self):
         self.setWindowTitle("ShipmentTrack")
@@ -182,8 +189,82 @@ class MainWindow(QMainWindow):
         self.profile_button.clicked.connect(
             lambda: position_popup(self.profile_popup, self.profile_button)
         )
+        self.profile_popup.changelog_requested.connect(self.show_changelog)
+        self.profile_popup.update_requested.connect(lambda: self.check_for_updates(manual=True))
         layout.addWidget(self.profile_button)
         return sidebar
+
+    def show_changelog(self):
+        self.profile_popup.hide()
+        notes = "\n".join(f"• {note}" for note in app_updater.CURRENT_CHANGELOG)
+        QMessageBox.information(
+            self,
+            f"ShipmentTrack v{APP_VERSION} 更新日志",
+            notes,
+        )
+
+    def check_for_updates(self, manual=False):
+        self.profile_popup.hide()
+        if self._update_check_worker and self._update_check_worker.isRunning():
+            if manual:
+                self._show_status("正在检查更新")
+            return
+        self._update_manual = bool(manual)
+
+        def task(log, progress, item):
+            item(app_updater.fetch_update_manifest())
+
+        self._update_check_worker = TaskWorker(task, self)
+        self._update_check_worker.item.connect(self._handle_update_manifest)
+        self._update_check_worker.finished_ok.connect(self._finish_update_check)
+        self._update_check_worker.start()
+
+    def _handle_update_manifest(self, manifest):
+        if not manifest:
+            if self._update_manual:
+                QMessageBox.information(self, "ShipmentTrack", "当前已是最新版本。")
+            return
+        notes = "\n".join(f"• {note}" for note in manifest.get("notes", ()))
+        answer = QMessageBox.question(
+            self,
+            "发现新版本",
+            f"ShipmentTrack v{manifest['version']} 已发布。\n\n{notes}\n\n现在下载并更新吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if answer == QMessageBox.Yes:
+            self._download_application_update(manifest)
+
+    def _finish_update_check(self, ok, error):
+        if not ok and self._update_manual:
+            QMessageBox.warning(self, "ShipmentTrack", error or "检查更新失败。")
+        self._update_check_worker = None
+
+    def _download_application_update(self, manifest):
+        self._show_status(f"正在下载 ShipmentTrack v{manifest['version']}")
+
+        def task(log, progress, item):
+            item(app_updater.download_update(manifest))
+
+        self._update_download_worker = TaskWorker(task, self)
+        self._update_download_worker.item.connect(self._apply_application_update)
+        self._update_download_worker.finished_ok.connect(self._finish_update_download)
+        self._update_download_worker.start()
+
+    def _apply_application_update(self, downloaded_exe):
+        try:
+            app_updater.stage_update(downloaded_exe)
+        except Exception as exc:
+            QMessageBox.warning(self, "ShipmentTrack", f"无法应用更新：\n{exc}")
+            return
+        QMessageBox.information(self, "ShipmentTrack", "更新已下载，程序将关闭并自动重启。")
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().quit()
+
+    def _finish_update_download(self, ok, error):
+        if not ok:
+            QMessageBox.warning(self, "ShipmentTrack", error or "下载更新失败。")
+        self._update_download_worker = None
 
     def _build_tracking_page(self):
         page = QWidget()

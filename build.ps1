@@ -3,7 +3,7 @@
 # 1) PyArmor 混淆授权核心
 # 2) PyInstaller 构建 onedir
 # 3) 将默认 JSON 复制到 data 文件夹，并复制使用说明
-# Chromium 始终作为外接依赖，不复制进安装目录。
+# 使用系统已安装的 Edge/Chrome，不复制浏览器进安装目录。
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -33,4 +33,4 @@ Copy-Item (Join-Path $PSScriptRoot "使用说明.txt") -Destination $dist -Force
 Write-Host "=== Done ==="
 Write-Host "输出目录: $dist"
 Write-Host "启动: $dist\Shipment Track.exe"
-Write-Host "首次运行请在设置页自动检测或手动选择外接 Chromium 的 chrome.exe。"
+Write-Host "首次运行请在设置页选择并检测已安装的 Edge 或 Google Chrome。"

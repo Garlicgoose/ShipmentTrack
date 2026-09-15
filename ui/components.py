@@ -154,10 +154,13 @@ class ClickableFrame(QFrame):
 
 
 class ProfilePopup(QDialog):
+    changelog_requested = Signal()
+    update_requested = Signal()
+
     def __init__(self, avatar_path, name, version="", features=(), parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
         self.setObjectName("profilePopup")
-        self.setFixedSize(310, 244)
+        self.setFixedSize(310, 292)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(7)
@@ -183,6 +186,16 @@ class ProfilePopup(QDialog):
             feature_label.setObjectName("popupFeature")
             feature_label.setWordWrap(True)
             layout.addWidget(feature_label)
+        actions = QHBoxLayout()
+        changelog = QPushButton("更新日志")
+        changelog.setObjectName("smallButton")
+        changelog.clicked.connect(self.changelog_requested.emit)
+        update = QPushButton("检查更新")
+        update.setObjectName("smallButton")
+        update.clicked.connect(self.update_requested.emit)
+        actions.addWidget(changelog)
+        actions.addWidget(update)
+        layout.addLayout(actions)
 
 
 class OpenFileButton(QPushButton):
