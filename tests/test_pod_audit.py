@@ -101,6 +101,18 @@ class PodAuditTests(unittest.TestCase):
             )
         self.assertEqual(["DHL"], [item[0]["快递公司"] for item in selected])
 
+    def test_all_zero_rates_remove_stale_audit_workbook(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "pod_audit.xlsx"
+            output.write_bytes(b"stale")
+            items = audit_pod_sample(
+                [],
+                output,
+                sample_rates={carrier: 0 for carrier in ("FedEx", "DHL", "UPS", "EI", "DSV")},
+            )
+            self.assertEqual([], items)
+            self.assertFalse(output.exists())
+
     def test_fedex_web_pod_no_longer_requires_signature_field(self):
         delivered = FakeReader("Tracking number 492670345899. Status: Delivered.")
         with mock.patch("modules.pod_audit.PdfReader", return_value=delivered):

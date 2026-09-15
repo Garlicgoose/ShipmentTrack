@@ -266,6 +266,9 @@ def audit_pod_sample(
             pod_kind=str(result.get("_audit_pod_kind") or "POD"),
             sample_rate=float(result.get("_audit_sample_rate") or 0),
         ))
+    output_path = Path(output_file)
     if items:
-        _save_audit_workbook(items, Path(output_file))
+        _save_audit_workbook(items, output_path)
+    else:
+        output_path.unlink(missing_ok=True)
     return items
