@@ -71,6 +71,23 @@ class AppUpdaterTests(unittest.TestCase):
             with self.assertRaisesRegex(app_updater.UpdateError, "校验失败"):
                 app_updater.download_update(manifest)
 
+    def test_stage_update_writes_wait_replace_and_restart_helper(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "new.exe"
+            target = root / "Shipment Track.exe"
+            source.write_bytes(b"MZnew")
+            target.write_bytes(b"MZold")
+            with mock.patch("modules.app_updater.get_data_path", return_value=root), \
+                 mock.patch("modules.app_updater.subprocess.Popen") as popen:
+                helper = app_updater.stage_update(source, target)
+            script = helper.read_text("utf-8-sig")
+            self.assertIn("Wait-Process", script)
+            self.assertIn("Copy-Item -LiteralPath $source -Destination $target -Force", script)
+            self.assertIn("Start-Process -FilePath $target", script)
+            self.assertIn(str(target), script)
+            popen.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
