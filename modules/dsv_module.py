@@ -2,6 +2,7 @@ import re
 import time
 import random
 from pathlib import Path
+from urllib.parse import urljoin
 
 from modules.status_rules import matches_exact_status
 
@@ -461,19 +462,72 @@ def search_dsv_tracking(page, tracking_number):
         print(f"{tracking_number} -> 查询后未检测到结果区域")
 
 
-def click_dsv_shipment_result(page, tracking_number):
+def is_dsv_detail_page(page):
+    if "shipment-details-public" in str(page.url).casefold():
+        return True
     try:
-        link = page.locator("a[href*='shipment-details-public']").first
+        text = page.locator("body").inner_text(timeout=5000).casefold()
+    except Exception:
+        return False
+    return "shipment progress" in text and "summary" in text
 
-        if link.is_visible(timeout=3000):
-            link.scroll_into_view_if_needed(timeout=2000)
-            time.sleep(0.5)
-            link.click(timeout=5000)
-            time.sleep(3)
+
+def navigate_dsv_details_by_link(page):
+    """Open the first result URL directly; this does not depend on displayed ID text."""
+    try:
+        links = page.locator("a[href*='shipment-details-public']")
+        for index in range(min(links.count(), 10)):
+            link = links.nth(index)
+            href = str(link.get_attribute("href") or "").strip()
+            if not href:
+                continue
+            page.goto(urljoin(str(page.url), href), wait_until="domcontentloaded", timeout=45000)
             wait_page_ready(page)
-            return True
+            if is_dsv_detail_page(page):
+                return True
     except Exception:
         pass
+    return False
+
+
+def click_dsv_result_by_position(page):
+    """Click the visible result card/row center when link or displayed ID changes."""
+    selectors = (
+        "a[href*='shipment-details-public']",
+        "[data-testid*='shipment']",
+        "[class*='shipment'][class*='result']",
+        "[class*='result-card']",
+        "article",
+    )
+    for selector in selectors:
+        try:
+            items = page.locator(selector)
+            for index in range(min(items.count(), 12)):
+                item = items.nth(index)
+                if not item.is_visible(timeout=800):
+                    continue
+                box = item.bounding_box()
+                if not box or box["width"] < 120 or box["height"] < 35:
+                    continue
+                item.scroll_into_view_if_needed(timeout=2000)
+                page.mouse.click(
+                    box["x"] + min(box["width"] * 0.35, 180),
+                    box["y"] + box["height"] * 0.5,
+                )
+                time.sleep(2)
+                wait_page_ready(page)
+                if is_dsv_detail_page(page):
+                    return True
+        except Exception:
+            pass
+    return False
+
+
+def click_dsv_shipment_result(page, tracking_number):
+    # Method 1: use the actual result link. It remains valid when the visible
+    # Shipment ID differs from the user's reference number.
+    if navigate_dsv_details_by_link(page):
+        return True
 
     tracking_upper = tracking_number.upper()
 
@@ -504,7 +558,8 @@ def click_dsv_shipment_result(page, tracking_number):
 
                 time.sleep(3)
                 wait_page_ready(page)
-                return True
+                if is_dsv_detail_page(page):
+                    return True
         except Exception:
             pass
 
@@ -553,11 +608,14 @@ def click_dsv_shipment_result(page, tracking_number):
         if clicked:
             time.sleep(3)
             wait_page_ready(page)
-            return True
+            if is_dsv_detail_page(page):
+                return True
     except Exception:
         pass
 
-    return False
+    # Method 2: coordinate click inside the one visible result card. This is
+    # deliberately independent from Shipment ID text and survives label drift.
+    return click_dsv_result_by_position(page)
 
 
 def save_dsv_pdf(page, tracking_number):
@@ -569,7 +627,7 @@ def save_dsv_pdf(page, tracking_number):
 
         current_url = page.url
 
-        if "shipment-details-public" not in current_url:
+        if "shipment-details-public" not in current_url and not is_dsv_detail_page(page):
             print(f"{tracking_number} -> 当前不是详情页，不保存PDF: {current_url}")
             return ""
 
