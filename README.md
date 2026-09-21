@@ -11,12 +11,13 @@ python main.py
 
 ## 打包
 ```
-powershell -ExecutionPolicy Bypass -File build.ps1
+powershell -ExecutionPolicy Bypass -File build.ps1 -DistRoot E:\ShipmentTrackBuild
 # 1) PyInstaller ShipmentTrack.spec（onedir，collect_all playwright）
 # 2) 将两份默认映射 JSON 复制到 data / 复制使用说明.txt
-# 产物: dist\Shipment Track\Shipment Track.exe（整文件夹拷贝使用）
+# 产物: 指定目录\Shipment Track\Shipment Track.exe（整文件夹拷贝使用）
 # Edge / Google Chrome 由用户在设置页选择并自动检测
 # 注意: build.ps1 必须保存为 UTF-8 with BOM（PS5.1 中文乱码问题）
+# 旧 dist/data 有设置或授权缓存时构建会拒绝覆盖，务必指定独立空目录
 ```
 
 ## 页面
@@ -30,8 +31,17 @@ powershell -ExecutionPolicy Bypass -File build.ps1
   已选一侧会生成对应文件，界面未选侧保持空白。两侧都有数据时按日期与
   光联/MPO 归总类别比较数量。检验表明细仍保留澳车、港车、814S 等原类型，
   `类型箱数` Sheet 另行汇总每天各原类型的箱数。
-- 设置：维护 FedEx API、EI 账号、默认路径、实际浏览器和文件名映射。
-- 送达状态：可为 DHL、EI、DSV 添加额外状态，仅与当前状态完整匹配。
+- 设置分四个标签页：连接与路径（FedEx API、EI 账号、默认路径、实际浏览器）、映射
+  （文件名映射）、货代抵达状态（可为 DHL、EI、DSV 添加额外状态，仅与当前状态完整
+  匹配）、POD 抽查比例（五个承运商各自填写 0–100 的整数）。
+- 官网语言：DHL（hk-en）、UPS（loc=en_US）由 URL 决定；DSV、EI 没有语言参数，
+  程序把浏览器 Accept-Language 与 navigator.language 锁成 en-US，页面若仍为中文
+  再兜底点击站点自带的 English 选项，保证状态文案与英文选择器一致。
+- FedEx 网页 POD：批量任务只查 API 状态，不自动下载。完成后在跟踪页打开
+  「FedEx 半自动 POD」；程序打开官网，用户点击 Tracking ID 输入框后自动填号，
+  用户自行点击 TRACK 和详情，程序识别页面并保存两份 PDF。
+- 映射设置提供包含/完全/正则匹配方式、真实文件名预览和推荐规则补充；
+  使用说明见 `docs/FILENAME_MAPPING_GUIDE.md`。
 - 更新：启动后从 GitHub 静默检查新版本；头像弹窗可查看更新日志或手动检查。
 
 界面中的 POD 绿色圆点、查询结果、清洗文件、POD 抽查和两份合并 Excel
@@ -50,10 +60,10 @@ Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置�
 - 返回达到 40 件时，40 件全部送达则暂定送达，并写入人工复核备注
 - API 只负责快速查询状态，不再请求官方 POD 文档接口
 - 只有送达后才启动系统安装的真实 Microsoft Edge，并复用 `data/fedex_edge_profile`
-- 自动查询官网后保存两份网页 PDF：`运单号.pdf` 为查询主页，
-  `运单号+.pdf` 为点击“查看更多详细信息”后的详情页
+- 在半自动面板中由用户提交查询、打开详情后，程序保存两份网页 PDF：
+  `运单号.pdf` 为查询主页，`运单号+.pdf` 为详情页
 - 网页 POD 固定使用英文站；打印前自动关闭 Cookie 和聊天浮层
-- Edge 首次启动预热 30 秒，供公司电脑完成账号登录；登录状态保存到持久化配置
+- FedEx 半自动面板独立于其他承运商的 10 秒登录等待；可在浏览器中完成公司登录
 - 界面中的同一个绿色 POD 圆点会依次打开这两份文件
 
 ## Droplist 识别
@@ -95,3 +105,10 @@ requirements.txt（经过打包验证的依赖版本）
 - 设置中的五个比例互相独立，0% 表示不抽查，100% 表示全部抽查。
 - 抽查表字段为运单号、承运商、POD 类型、抽查比例、查询状态、POD 文件、
   PDF 有效、运单号匹配、PDF 提取状态、送达状态匹配、结果和说明。
+
+## 合并异常处理
+
+- 检验表原始列宽不一致时，按最大列数保留所有源列，再追加类型、日期等映射字段。
+- 缺失文件不会被虚构；异常文件页会列出缺失的日期/类别和无法匹配的文件。
+- 以 2026-09-21 附件复核：9.19 光联加入 Expeditors 映射后两侧均为 1,917；
+  9.18 MPO 缺检验表源文件，9.17 MPO 差 98，9.19 MPO 差 355，仍需核源。

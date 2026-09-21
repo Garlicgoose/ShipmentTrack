@@ -21,10 +21,11 @@ UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "增加 POD 抽查比例",
-    "移除已失效的 FedEx 签名和签收人字段",
-    "FedEx POD 改用真实浏览器（Edge）查询网页",
-    "修复 FedEx API 相关的 bug",
+    "五家承运商的 POD 抽查比例可分别设置为 0%–100%",
+    "FedEx 批量查询只取 API 状态",
+    "网页承运商第一次启动时留 10 秒公司登录时间",
+    "映射规则增加匹配方式、预览、推荐规则和说明文档",
+    "检验表按最大原始列数保留全部字段",
 )
 
 
