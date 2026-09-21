@@ -392,15 +392,16 @@ def _merge_droplist(
 
     for file in files:
         workbook = load_workbook(file, data_only=False)
+        source_label = str(file.relative_to(folder))
         match = mapper.match(file.name)
         comparison_type = (
             match.target_type if match.target_type in {"光联", "MPO"} else "未识别"
         )
         _, date_label = _resolve_date(file)
         if not match.matched:
-            issues.append(("Droplist", file.name, match.note))
+            issues.append(("Droplist", source_label, match.note))
         if not date_label:
-            issues.append(("Droplist", file.name, "文件名和父文件夹均无法识别日期"))
+            issues.append(("Droplist", source_label, "文件名和父文件夹均无法识别日期"))
 
         file_rows = 0
         candidate_sheet_count = 0
@@ -423,7 +424,7 @@ def _merge_droplist(
                 target_row += 1
             elif max_column != fixed_columns:
                 issues.append(
-                    ("Droplist", file.name, f"列数 {max_column} 与首个数据表 {fixed_columns} 不一致")
+                    ("Droplist", source_label, f"列数 {max_column} 与首个数据表 {fixed_columns} 不一致")
                 )
 
             for source_row in range(4, source.max_row + 1):
@@ -444,7 +445,7 @@ def _merge_droplist(
                     comparison_type,
                     comparison_type,
                     date_label,
-                    file.name,
+                    source_label,
                     match.note,
                 )
                 totals[(date_label, comparison_type)] += _quantity(
@@ -455,11 +456,11 @@ def _merge_droplist(
                 file_rows += 1
             _copy_merged_ranges(source, output_sheet, row_map, fixed_columns)
         if not file_rows:
-            issues.append(("Droplist", file.name, "没有有效数据行"))
+            issues.append(("Droplist", source_label, "没有有效数据行"))
         else:
             processed_files += 1
         if not candidate_sheet_count:
-            issues.append(("Droplist", file.name, "未找到包含第3行 S/O、QTY 表头的明细页"))
+            issues.append(("Droplist", source_label, "未找到包含第3行 S/O、QTY 表头的明细页"))
         workbook.close()
 
     return totals, processed_files, data_rows

@@ -224,6 +224,9 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual(12, mpo.droplist_quantity)
         self.assertEqual("一致", mpo.result)
         self.assertTrue(any("empty" in issue[1] for issue in result.issues))
+        self.assertTrue(any(
+            issue[1].startswith("9.10") for issue in result.issues if "empty" in issue[1]
+        ))
 
     def test_inspect_and_droplist_can_run_independently(self):
         create_inspect(self.inspect / "9.10 澳车.xlsx", [10])
