@@ -7,6 +7,7 @@ from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import unicodedata
 from typing import Callable, Iterable, Optional
 
 from openpyxl import Workbook, load_workbook
@@ -516,16 +517,24 @@ def _style_output(workbook) -> None:
         sheet.auto_filter.ref = sheet.dimensions if sheet.max_row > 1 else None
         for column_cells in sheet.columns:
             values = [str(cell.value or "") for cell in column_cells[:200]]
-            width = min(max(max((len(value) for value in values), default=8) + 2, 10), 36)
+            visual_lengths = [sum(
+                2 if unicodedata.east_asian_width(char) in {"F", "W"} else 1
+                for char in value
+            ) for value in values]
+            width = min(max(max(visual_lengths, default=8) + 3, 12), 48)
             sheet.column_dimensions[column_cells[0].column_letter].width = width
 
     if "核对汇总" not in workbook.sheetnames:
         return
     summary = workbook["核对汇总"]
     for row in range(2, summary.max_row + 1):
-        summary.cell(row, 3).number_format = "#,##0.##"
-        summary.cell(row, 4).number_format = "#,##0.##"
-        summary.cell(row, 5).number_format = "#,##0.##"
+        for column in (3, 4, 5):
+            cell = summary.cell(row, column)
+            value = cell.value
+            cell.number_format = (
+                "#,##0" if isinstance(value, (int, float)) and float(value).is_integer()
+                else "#,##0.00"
+            )
         if summary.cell(row, 6).value == "一致":
             summary.cell(row, 6).fill = PatternFill("solid", fgColor="E8F6EE")
         else:

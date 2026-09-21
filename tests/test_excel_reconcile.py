@@ -125,6 +125,8 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual("光联", guanglian[8])
         self.assertEqual("光联业务", guanglian[11])
         self.assertFalse(workbook["核对汇总"].sheet_view.showGridLines)
+        self.assertGreaterEqual(workbook["核对汇总"].column_dimensions["F"].width, 12)
+        self.assertEqual("#,##0", workbook["核对汇总"].cell(2, 3).number_format)
         type_rows = list(
             workbook["类型箱数"].iter_rows(min_row=2, values_only=True)
         )
@@ -156,6 +158,8 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertTrue(any(issue[0] == "检验表" for issue in result.issues))
         self.assertTrue(any(row.target_type == "未识别" for row in result.rows))
         self.assertTrue(any(issue[0] == "核对" for issue in result.issues))
+        summary = load_workbook(result.inspect_output_file)["核对汇总"]
+        self.assertGreaterEqual(summary.column_dimensions["F"].width, 18)
 
         # 第二次运行时不得把第一次输出再次当成输入。
         second = merge_and_reconcile_excel(
