@@ -22,6 +22,8 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertNotIn('"machine_id.py"', script)
         self.assertIn('$dataDir = Join-Path $dist "data"', script)
         self.assertIn("-Destination $dataDir", script)
+        self.assertIn("输出目录包含运行数据", script)
+        self.assertIn("--distpath $distBase", script)
 
     def test_build_obfuscates_signed_authorization_core(self):
         script = (ROOT / "build.ps1").read_text("utf-8-sig")
@@ -102,12 +104,12 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn('throw "PyInstaller build failed."', script)
         self.assertIn('Shipment Track.exe"', script)
 
-    def test_build_preserves_local_settings_across_rebuild(self):
-        """回归：打包会重建 dist，本机 FedEx/EI 凭据与路径不能丢。"""
+    def test_build_refuses_to_overwrite_runtime_data(self):
+        """已有设置/机器码属于用户，重建产物必须换空目录。"""
         script = (ROOT / "build.ps1").read_text("utf-8-sig")
-        self.assertIn('$settingsBackup = Join-Path ([IO.Path]::GetTempPath())', script)
-        self.assertIn('Copy-Item (Join-Path $dataDir "settings.json") $settingsBackup -Force', script)
-        self.assertIn('Copy-Item $settingsBackup (Join-Path $dataDir "settings.json") -Force', script)
+        self.assertIn("param([string]$DistRoot", script)
+        self.assertIn("输出目录包含运行数据", script)
+        self.assertIn("'settings.json', 'machine_id', 'authorization.cache'", script)
 
     def test_build_trims_unused_runtime_files(self):
         script = (ROOT / "build.ps1").read_text("utf-8-sig")

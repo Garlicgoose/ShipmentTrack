@@ -165,8 +165,8 @@ class TrackingRunnerTests(unittest.TestCase):
             events,
         )
 
-    def test_company_login_wait_runs_once_at_start_for_edge_only(self):
-        """回归：等公司登录放在查询最开始，只 Edge 且只一次，Chrome 不需要。"""
+    def test_company_login_wait_runs_once_for_first_web_carrier(self):
+        """网页承运商第一次启动时等公司登录；FedEx API 不触发等待。"""
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
 
@@ -208,7 +208,7 @@ class TrackingRunnerTests(unittest.TestCase):
             self.assertEqual(1, len([m for m in edge_logs if "公司要求登录" in m]))
             sleep.assert_any_call(7)
 
-            # Chrome：不等待
+            # Chrome 也留同样的人工登录窗口；不是只给 Edge。
             chrome_logs = []
             with mock.patch(
                 "modules.tracking_runner.TrackingCarrierSession", side_effect=make_session
@@ -222,11 +222,8 @@ class TrackingRunnerTests(unittest.TestCase):
                     save_pdf=False, browser_type="chrome",
                     log=chrome_logs.append, login_wait_seconds=7,
                 )
-            self.assertEqual(0, len([m for m in chrome_logs if "公司要求登录" in m]))
-            self.assertEqual(
-                [],
-                [c for c in sleep.call_args_list if c.args and c.args[0] == 7],
-            )
+            self.assertEqual(1, len([m for m in chrome_logs if "公司要求登录" in m]))
+            sleep.assert_any_call(7)
 
 
 if __name__ == "__main__":

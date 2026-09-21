@@ -134,6 +134,21 @@ class RealBrowserControllerTests(unittest.TestCase):
         terminate.assert_called_once_with(process)
         self.assertIsNone(controller.process)
 
+    def test_failed_cdp_attach_terminates_launched_browser(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executable = Path(temp_dir) / "msedge.exe"
+            executable.write_bytes(b"edge")
+            process = mock.Mock()
+            controller = RealBrowserController(
+                mock.Mock(), executable, Path(temp_dir) / "profile"
+            )
+            with mock.patch("modules.real_browser.subprocess.Popen", return_value=process), \
+                 mock.patch("modules.real_browser.wait_for_cdp", side_effect=RuntimeError("CDP failed")), \
+                 mock.patch("modules.real_browser._terminate_process_tree") as terminate:
+                with self.assertRaisesRegex(RuntimeError, "CDP failed"):
+                    controller.start()
+            terminate.assert_called_once_with(process)
+
     def test_close_all_launched_browsers_kills_everything(self):
         from modules import real_browser
 

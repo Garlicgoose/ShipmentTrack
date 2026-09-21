@@ -57,7 +57,7 @@ def run_tracking(
     result=None,
     delivery_statuses=None,
     audit_rates=None,
-    login_wait_seconds=30,
+    login_wait_seconds=10,
 ):
     """执行批量查询。三个回调用于日志、进度和逐条结果。"""
     log = log or (lambda msg: None)
@@ -107,9 +107,9 @@ def run_tracking(
     current_carrier = None
     session = None
     playwright = None
-    # “等公司登录”放在查询刚开始执行一次（Edge 才需要，Chrome 不需要），
-    # 不跟 FedEx 网页 POD 捆绑。
-    company_login_wait_done = browser_type != "edge"
+    # 第一家网页承运商启动后留 10 秒供公司浏览器登录；只等一次。
+    # FedEx API 与半自动 POD 均不受这个计时器影响。
+    company_login_wait_done = False
 
     try:
         from playwright.sync_api import sync_playwright
@@ -143,7 +143,12 @@ def run_tracking(
                         save_pdf=save_pdf,
                         delivery_statuses=delivery_statuses,
                     )
-                    session.start()
+                    try:
+                        session.start()
+                    except Exception:
+                        session.close()
+                        session = None
+                        raise
                     if not company_login_wait_done:
                         company_login_wait_done = True
                         if login_wait_seconds:

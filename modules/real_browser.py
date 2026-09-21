@@ -194,16 +194,20 @@ class RealBrowserController:
         except Exception:
             raise
         _LAUNCHED_PROCESSES.add(self.process)
-        wait_for_cdp(cdp_url)
-        self.browser = self.playwright.chromium.connect_over_cdp(cdp_url)
-        if not self.browser.contexts:
-            raise RealBrowserError(f"{self.browser_name} 没有可用浏览器上下文")
-        self.context = self.browser.contexts[0]
-        self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
-        self._lock_english_locale(self.page)
-        self.page.set_default_timeout(15_000)
-        self._prepare_windows()
-        return self.context, self.page
+        try:
+            wait_for_cdp(cdp_url)
+            self.browser = self.playwright.chromium.connect_over_cdp(cdp_url)
+            if not self.browser.contexts:
+                raise RealBrowserError(f"{self.browser_name} 没有可用浏览器上下文")
+            self.context = self.browser.contexts[0]
+            self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
+            self._lock_english_locale(self.page)
+            self.page.set_default_timeout(15_000)
+            self._prepare_windows()
+            return self.context, self.page
+        except Exception:
+            self.close()
+            raise
 
     def _prepare_windows(self) -> None:
         """只保留一个页面，并按需把所有窗口最小化。"""
@@ -304,10 +308,10 @@ class RealBrowserController:
         """关闭该浏览器：断开 CDP，并把进程树一起结束掉（不留窗口）。"""
         browser, process = self.browser, self.process
         self.page = self.context = self.browser = self.process = None
+        _LAUNCHED_PROCESSES.discard(process)
+        _terminate_process_tree(process)
         if browser is not None:
             try:
                 browser.close()
             except Exception:
                 pass
-        _LAUNCHED_PROCESSES.discard(process)
-        _terminate_process_tree(process)
