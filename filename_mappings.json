@@ -21,6 +21,9 @@
   {"pattern":"CELESTICA-EI自提","target_type":"光联","display_type":"CELESTICA-EI自提","match_type":"contains","note":""},
   {"pattern":"814T","target_type":"光联","display_type":"814T","match_type":"contains","note":""},
   {"pattern":"国外DHL出货资料","target_type":"光联","display_type":"国外DHL","match_type":"contains","note":""},
+  {"pattern":"国外Expeditors自提","target_type":"光联","display_type":"Expeditors自提","match_type":"contains","note":""},
+  {"pattern":"MPO国外FED-EX","target_type":"MPO","display_type":"FedEx自提","match_type":"contains","note":""},
+  {"pattern":"MPO国外DSV自提","target_type":"MPO","display_type":"DSV自提","match_type":"contains","note":""},
   {
     "pattern": "光联",
     "target_type": "光联",

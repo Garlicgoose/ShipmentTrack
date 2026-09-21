@@ -8,13 +8,18 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QFrame,
+    QGroupBox,
     QLabel,
+    QLineEdit,
     QScrollArea,
     QPushButton,
     QTableWidgetItem,
+    QWidget,
 )
 from PySide6.QtTest import QTest
 
@@ -71,7 +76,12 @@ class NativeUiTests(unittest.TestCase):
         ]
         self.assertEqual([], sidebar_profile_text)
         self.assertEqual([], self.window.settings_page.findChildren(QScrollArea))
-        self.assertEqual(2, self.window.settings_page.settings_tabs.count())
+        tabs = self.window.settings_page.settings_tabs
+        self.assertEqual(4, tabs.count())
+        self.assertEqual(
+            ["连接与路径", "映射", "货代抵达状态", "POD 抽查比例"],
+            [tabs.tabText(index) for index in range(tabs.count())],
+        )
         self.assertEqual(
             {"edge", "chrome"},
             set(self.window.settings_page.browser_buttons),
@@ -80,8 +90,8 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual(
             {"FedEx": 20, "DHL": 5, "UPS": 5, "EI": 5, "DSV": 5},
             {
-                carrier: spin.value()
-                for carrier, spin in self.window.settings_page.audit_rate_inputs.items()
+                carrier: int(field.text())
+                for carrier, field in self.window.settings_page.audit_rate_inputs.items()
             },
         )
         self.assertEqual("1.2", APP_VERSION)
@@ -205,6 +215,58 @@ class NativeUiTests(unittest.TestCase):
             self.window._handle_tracking_cell_click(0, 5)
         self.assertEqual(2, open_url.call_count)
 
+    def test_delivered_fedex_is_queued_for_manual_pod_and_updates_table(self):
+        from modules.fedex_manual_pod import ManualPodResult
+        main_pdf = Path(self.temp_dir.name) / "541964339019.pdf"
+        detail_pdf = Path(self.temp_dir.name) / "541964339019+.pdf"
+        main_pdf.write_bytes(b"%PDF-main")
+        detail_pdf.write_bytes(b"%PDF-detail")
+        self.window._append_tracking_result({
+            "运单号": "541964339019", "快递公司": "FedEx",
+            "状态": "Delivered", "is_delivered": True,
+        })
+        self.assertEqual(["541964339019"], self.window._fedex_manual_jobs)
+        self.window._manual_fedex_completed(ManualPodResult(
+            "541964339019", str(main_pdf), str(detail_pdf)
+        ))
+        pod_cell = self.window.tracking_table.item(0, 5)
+        self.assertEqual("●", pod_cell.text())
+        self.assertEqual([str(main_pdf), str(detail_pdf)], pod_cell.data(Qt.UserRole))
+
+    def test_settings_tabs_have_no_overlapping_controls(self):
+        """回归：三个设置分区挤在一页时表格和按钮会互相压住，拆页后不得再重叠。"""
+        page = self.window.settings_page
+        for width, height in ((1280, 800), (1024, 680)):
+            self.window.resize(width, height)
+            self.window.show()
+            page.show()
+            QTest.qWait(120)
+            for index in range(page.settings_tabs.count()):
+                page.settings_tabs.setCurrentIndex(index)
+                QTest.qWait(60)
+                current = page.settings_tabs.currentWidget()
+                self.assertEqual([], self._sibling_overlaps(current), page.settings_tabs.tabText(index))
+        self.window.hide()
+
+    @staticmethod
+    def _sibling_overlaps(root):
+        """找出同一父控件（页或分组框）下位置互相重叠的直接子控件。"""
+        parents = [root] + root.findChildren(QGroupBox)
+        overlaps = []
+        for parent in parents:
+            rectangles = [
+                (child, QRect(child.mapTo(parent, QPoint(0, 0)), child.size()))
+                for child in parent.children()
+                if isinstance(child, QWidget) and child.isVisible() and not child.isHidden()
+            ]
+            for position, (child, rectangle) in enumerate(rectangles):
+                for other, other_rectangle in rectangles[position + 1:]:
+                    if rectangle.intersects(other_rectangle):
+                        overlaps.append(
+                            (child.__class__.__name__, other.__class__.__name__)
+                        )
+        return overlaps
+
     def test_settings_page_writes_mapping_json_without_manual_editing(self):
         page = self.window.settings_page
         page.add_mapping()
@@ -240,13 +302,66 @@ class NativeUiTests(unittest.TestCase):
             save_settings.call_args.args[0]["fedex_api_secret"],
         )
 
+    def test_settings_tabs_split_mapping_status_and_audit_rate_pages(self):
+        page = self.window.settings_page
+        tabs = page.settings_tabs
+        # 文件名映射留在「映射」页，状态表和比例输入各自独立成页，避免互相挤占重叠
+        self.assertTrue(tabs.widget(1).isAncestorOf(page.mapping_table))
+        self.assertFalse(tabs.widget(1).isAncestorOf(page.status_table))
+        self.assertTrue(tabs.widget(2).isAncestorOf(page.status_table))
+        self.assertFalse(tabs.widget(2).isAncestorOf(page.audit_rate_inputs["FedEx"]))
+        self.assertTrue(tabs.widget(3).isAncestorOf(page.audit_rate_inputs["FedEx"]))
+        self.assertFalse(tabs.widget(3).isAncestorOf(page.mapping_table))
+        # 比例只提供输入框，不再有上下调节按钮
+        self.assertEqual([], page.audit_page.findChildren(QAbstractSpinBox))
+        for carrier, field in page.audit_rate_inputs.items():
+            self.assertIsInstance(field, QLineEdit)
+            self.assertFalse(field.isReadOnly())
+            self.assertEqual(3, field.maxLength())
+            self.assertTrue(field.alignment() & Qt.AlignHCenter)
+            validator = field.validator()
+            self.assertEqual("Acceptable", validator.validate("100", 0)[0].name)
+            # 超过 100 只能是中间态，保存时由 audit_rate_values() 拦截
+            self.assertEqual("Intermediate", validator.validate("101", 0)[0].name)
+            self.assertEqual("Invalid", validator.validate("5a", 0)[0].name)
+        self.assertEqual(
+            {"FedEx": 20, "DHL": 5, "UPS": 5, "EI": 5, "DSV": 5},
+            page.audit_rate_values()[0],
+        )
+        self.assertEqual([], page.audit_rate_values()[1])
+
+    def test_settings_page_rejects_unparsable_audit_rate(self):
+        page = self.window.settings_page
+        for text in ("", "999"):
+            page.audit_rate_inputs["DHL"].setText(text)
+            with mock.patch("ui.settings_page.QMessageBox.warning") as warning:
+                with mock.patch.object(page.store, "save_settings") as save_settings:
+                    page.save()
+            warning.assert_called_once()
+            save_settings.assert_not_called()
+            self.assertIs(page.audit_page, page.settings_tabs.currentWidget())
+        page.audit_rate_inputs["DHL"].setText("5")
+        rates, invalid = page.audit_rate_values()
+        self.assertEqual([], invalid)
+        self.assertEqual(5, rates["DHL"])
+
     def test_settings_page_saves_independent_pod_audit_rates(self):
         page = self.window.settings_page
         expected = {"FedEx": 0, "DHL": 15, "UPS": 35, "EI": 65, "DSV": 100}
         for carrier, value in expected.items():
-            page.audit_rate_inputs[carrier].setValue(value)
+            page.audit_rate_inputs[carrier].setText(str(value))
         page.save()
         self.assertEqual(expected, self.store.load_settings()["pod_audit_rates"])
+
+    def test_mapping_preview_and_recommended_rules_are_visible(self):
+        page = self.window.settings_page
+        page.add_recommended_mappings()
+        page.mapping_preview_input.setText("9.19国外Expeditors自提资料.XLSX")
+        self.assertIn("Expeditors自提 → 光联", page.mapping_preview_result.text())
+        self.assertEqual(5, page.mapping_table.columnCount())
+        self.assertTrue(any(
+            rule.pattern == "国外Expeditors自提" for rule in page.mapping_rules()
+        ))
 
     def test_excel_page_is_single_combined_workflow(self):
         self.assertEqual(6, self.window.excel_table.columnCount())

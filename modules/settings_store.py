@@ -86,6 +86,9 @@ DEFAULT_FILENAME_MAPPINGS = [
     FilenameMappingRule(pattern="CELESTICA-EI自提", target_type="光联", display_type="CELESTICA-EI自提"),
     FilenameMappingRule(pattern="814T", target_type="光联", display_type="814T"),
     FilenameMappingRule(pattern="国外DHL出货资料", target_type="光联", display_type="国外DHL"),
+    FilenameMappingRule(pattern="国外Expeditors自提", target_type="光联", display_type="Expeditors自提"),
+    FilenameMappingRule(pattern="MPO国外FED-EX", target_type="MPO", display_type="FedEx自提"),
+    FilenameMappingRule(pattern="MPO国外DSV自提", target_type="MPO", display_type="DSV自提"),
     FilenameMappingRule(pattern="光联", target_type="光联", display_type="光联"),
     FilenameMappingRule(pattern="MPO", target_type="MPO", display_type="MPO"),
 ]

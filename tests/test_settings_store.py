@@ -60,13 +60,14 @@ class SettingsStoreTests(unittest.TestCase):
 
     def test_default_and_custom_mapping_round_trip(self):
         defaults = self.store.load_mappings()
-        self.assertEqual(24, len(defaults))
+        self.assertEqual(27, len(defaults))
         self.assertEqual("MPO国外EI自提", defaults[0].pattern)
         self.assertEqual("EI自提", defaults[0].display_type)
         self.assertEqual("MPO", defaults[0].target_type)
         self.assertEqual(["光联", "MPO"], [rule.target_type for rule in defaults[-2:]])
         self.assertEqual("光联", FilenameMapper(defaults).match("9.4 814T出货资料.xlsx").target_type)
         self.assertEqual("第一车", FilenameMapper(defaults).match("9.10国外第一车出货资料.xlsx").display_type)
+        self.assertEqual("Expeditors自提", FilenameMapper(defaults).match("9.19国外Expeditors自提资料.xlsx").display_type)
 
         rules = [
             FilenameMappingRule("澳车", "光联", "contains", "", "澳车"),

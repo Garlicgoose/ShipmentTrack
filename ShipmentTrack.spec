@@ -15,6 +15,7 @@ datas = [
     ("assets/app_icon.png", "assets"),
     ("assets/github_avatar.jpg", "assets"),
     ("CHANGELOG.md", "."),
+    ("docs/FILENAME_MAPPING_GUIDE.md", "docs"),
 ]
 binaries = []
 hiddenimports = [

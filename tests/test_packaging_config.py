@@ -43,6 +43,7 @@ class PackagingConfigTests(unittest.TestCase):
     def test_spec_includes_profile_asset_and_excludes_heavy_optional_modules(self):
         spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
         self.assertIn("assets/github_avatar.jpg", spec)
+        self.assertIn("docs/FILENAME_MAPPING_GUIDE.md", spec)
         self.assertIn('"modules.dhl_module"', spec)
         self.assertIn('"modules.fedex_web_pod"', spec)
         for module in ("pandas", "scipy", "pyarrow", "PySide6.QtWebEngineWidgets"):
@@ -53,7 +54,7 @@ class PackagingConfigTests(unittest.TestCase):
 
     def test_default_mapping_file_is_valid(self):
         mappings = json.loads((ROOT / "filename_mappings.json").read_text("utf-8"))
-        self.assertEqual(24, len(mappings))
+        self.assertEqual(27, len(mappings))
         self.assertEqual({"光联", "MPO"}, {item["target_type"] for item in mappings})
         self.assertEqual("EI自提", mappings[0]["display_type"])
         self.assertEqual(["光联", "MPO"], [item["target_type"] for item in mappings[-2:]])
@@ -95,11 +96,36 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertNotIn("GetMachineId.exe", readme)
         self.assertNotIn("GetMachineId.exe", guide)
 
+    def test_build_fails_loudly_when_pyinstaller_fails(self):
+        """回归：PyInstaller 删不掉被占用的 dist 时不能静默交付旧产物。"""
+        script = (ROOT / "build.ps1").read_text("utf-8-sig")
+        self.assertIn('throw "PyInstaller build failed."', script)
+        self.assertIn('Shipment Track.exe"', script)
+
+    def test_build_preserves_local_settings_across_rebuild(self):
+        """回归：打包会重建 dist，本机 FedEx/EI 凭据与路径不能丢。"""
+        script = (ROOT / "build.ps1").read_text("utf-8-sig")
+        self.assertIn('$settingsBackup = Join-Path ([IO.Path]::GetTempPath())', script)
+        self.assertIn('Copy-Item (Join-Path $dataDir "settings.json") $settingsBackup -Force', script)
+        self.assertIn('Copy-Item $settingsBackup (Join-Path $dataDir "settings.json") -Force', script)
+
+    def test_build_trims_unused_runtime_files(self):
+        script = (ROOT / "build.ps1").read_text("utf-8-sig")
+        self.assertIn('scripts\\trim_dist.py', script)
+        self.assertIn("-dist $dist", script)
+        trim = (ROOT / "scripts" / "trim_dist.py").read_text("utf-8")
+        # 裁剪必须有依赖表保护：仍被引用的文件不能删
+        self.assertIn("collect_all_imports", trim)
+        self.assertIn("PySide6/translations", trim)
+        self.assertIn("playwright/driver/package/lib/vite", trim)
+
     def test_packaged_app_has_offline_smoke_mode(self):
         main_source = (ROOT / "main.py").read_text("utf-8")
         self.assertIn('"--smoke-test"', main_source)
+        self.assertIn("QPixmap(resource).isNull()", main_source)
         self.assertIn('"modules.pod_audit"', main_source)
         self.assertIn('"modules.fedex_web_pod"', main_source)
+        self.assertIn('"modules.fedex_manual_pod"', main_source)
         self.assertIn('"modules.excel_reconcile"', main_source)
 
     def test_dependencies_are_pinned_without_pandas(self):
