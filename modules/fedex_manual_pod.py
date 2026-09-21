@@ -158,3 +158,32 @@ def update_tracking_result_file(result_file, pod_result: ManualPodResult) -> boo
         return False
     finally:
         workbook.close()
+
+
+def refresh_pod_audit(result_file, audit_file, sample_rates=None):
+    """Re-sample all available PODs after manual FedEx pages are saved."""
+    from modules.pod_audit import audit_pod_sample
+    from modules.tracking_runner import _aggregate_audit_results
+
+    path = Path(result_file)
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook.active
+        headers = {str(cell.value or "").strip(): cell.column for cell in sheet[1]}
+        required = {"运单号", "快递公司", "状态", "POD文件", "POD详情文件", "POD抽查"}
+        if not required.issubset(headers):
+            raise ValueError("跟踪结果缺少 POD 抽查需要的列")
+        rows = []
+        for index in range(2, sheet.max_row + 1):
+            item = {key: sheet.cell(index, column).value or "" for key, column in headers.items()}
+            item["is_delivered"] = bool(item.get("POD文件"))
+            rows.append(item)
+        audits = audit_pod_sample(rows, audit_file, sample_rates=sample_rates)
+        outcomes = _aggregate_audit_results(audits)
+        for index in range(2, sheet.max_row + 1):
+            number = str(sheet.cell(index, headers["运单号"]).value or "")
+            sheet.cell(index, headers["POD抽查"], outcomes.get(number, ""))
+        workbook.save(path)
+        return len(audits)
+    finally:
+        workbook.close()

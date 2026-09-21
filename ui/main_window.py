@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from modules.excel_reconcile import merge_and_reconcile_excel
-from modules.fedex_manual_pod import update_tracking_result_file
+from modules.fedex_manual_pod import refresh_pod_audit, update_tracking_result_file
 from modules import app_updater
 from modules.settings_store import SettingsStore
 from ui.components import (
@@ -90,6 +90,7 @@ class MainWindow(QMainWindow):
         self._tracking_output_paths = {}
         self._fedex_manual_jobs = []
         self._fedex_manual_dialog = None
+        self._audit_refresh_worker = None
         self._excel_output_paths = {}
         self._tracking_run_output_dir = None
         self._tracking_counts = {
@@ -912,6 +913,7 @@ class MainWindow(QMainWindow):
             self,
         )
         self._fedex_manual_dialog.completed.connect(self._manual_fedex_completed)
+        self._fedex_manual_dialog.queue_finished.connect(self._refresh_manual_pod_audit)
         self._fedex_manual_dialog.show()
 
     def _manual_fedex_completed(self, pod_result):
@@ -936,6 +938,34 @@ class MainWindow(QMainWindow):
                 self._show_status(f"POD 已保存，但更新结果 Excel 失败：{exc}")
                 return
         self._show_status(f"FedEx {number} 两份网页 POD 已保存")
+
+    def _refresh_manual_pod_audit(self):
+        result_path = self._tracking_output_paths.get("result")
+        if not result_path or not Path(result_path).is_file():
+            return
+        audit_path = Path(result_path).parent / "pod_audit.xlsx"
+        rates = self.store.load_settings().get("pod_audit_rates")
+
+        def task(log, progress, item):
+            count = refresh_pod_audit(result_path, audit_path, rates)
+            item(count)
+
+        self._audit_refresh_worker = TaskWorker(task, self)
+        self._audit_refresh_worker.item.connect(
+            lambda count: self._show_status(f"POD 抽查已更新：{count} 份")
+        )
+        self._audit_refresh_worker.finished_ok.connect(
+            lambda ok, error: self._manual_audit_finished(ok, error, audit_path)
+        )
+        self._audit_refresh_worker.start()
+
+    def _manual_audit_finished(self, ok, error, audit_path):
+        if ok:
+            self._tracking_output_paths["audit"] = audit_path
+            self._refresh_output_buttons(0)
+        else:
+            self._show_status(f"POD 抽查更新失败：{error}")
+        self._audit_refresh_worker = None
 
     def _start_excel(self):
         if not self._authorization_ready():

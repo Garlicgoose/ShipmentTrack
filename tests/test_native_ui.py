@@ -363,6 +363,13 @@ class NativeUiTests(unittest.TestCase):
             rule.pattern == "国外Expeditors自提" for rule in page.mapping_rules()
         ))
 
+    def test_mapping_guide_has_in_app_fallback_for_exe_only_updates(self):
+        page = self.window.settings_page
+        with mock.patch("ui.settings_page.get_resource_path", return_value=Path(self.temp_dir.name)), \
+             mock.patch("ui.settings_page.QMessageBox.information") as info:
+            page.open_mapping_guide()
+        self.assertIn("完全优先", info.call_args.args[2])
+
     def test_excel_page_is_single_combined_workflow(self):
         self.assertEqual(6, self.window.excel_table.columnCount())
         headers = [

@@ -391,7 +391,13 @@ class SettingsPage(QWidget):
         if guide.is_file():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(guide)))
         else:
-            QMessageBox.warning(self, "ShipmentTrack", "映射说明文件未找到。")
+            QMessageBox.information(
+                self,
+                "文件名映射说明",
+                "文件名关键字命中后，‘检验表类型’保留详细名称，‘归总类别’只用于光联/MPO数量核对。\n\n"
+                "匹配方式：包含、完全、正则；完全优先，其次正则，最后包含。多个包含规则命中时，较长关键字优先。\n\n"
+                "例如：国外Expeditors自提 → Expeditors自提 → 光联。先输入示例文件名预览，再保存。",
+            )
 
     def add_delivery_status(self, carrier="EI", status=""):
         if isinstance(carrier, bool):

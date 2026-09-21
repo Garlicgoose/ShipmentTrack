@@ -106,6 +106,7 @@ class ManualPodWorker(QThread):
 
 class FedExManualDialog(QDialog):
     completed = Signal(object)
+    queue_finished = Signal()
 
     def __init__(self, numbers, output_dir, browser_type="edge", browser_path="", parent=None):
         super().__init__(parent)
@@ -172,6 +173,7 @@ class FedExManualDialog(QDialog):
     def _finished(self, message):
         self.log.appendPlainText(message)
         self.start_button.setEnabled(True)
+        self.queue_finished.emit()
 
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():

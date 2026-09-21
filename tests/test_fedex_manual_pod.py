@@ -62,3 +62,21 @@ class ManualFedExPodTests(unittest.TestCase):
             self.assertEqual("main.pdf", output.active["C2"].value)
             self.assertEqual("detail.pdf", output.active["D2"].value)
             output.close()
+
+    def test_refresh_audit_includes_manually_saved_fedex_pods(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "tracking_result.xlsx"
+            book = Workbook()
+            book.active.append(("运单号", "快递公司", "状态", "POD文件", "POD详情文件", "POD抽查"))
+            book.active.append(("541964339019", "FedEx", "Delivered", "main.pdf", "detail.pdf", ""))
+            book.save(path)
+            fake = mock.Mock(tracking_number="541964339019", result="通过")
+            with mock.patch("modules.pod_audit.audit_pod_sample", return_value=[fake]) as audit:
+                count = manual.refresh_pod_audit(path, root / "audit.xlsx", {"FedEx": 100})
+            self.assertEqual(1, count)
+            self.assertEqual(100, audit.call_args.kwargs["sample_rates"]["FedEx"])
+            self.assertTrue(audit.call_args.args[0][0]["is_delivered"])
+            output = load_workbook(path, read_only=True)
+            self.assertEqual("通过", output.active["F2"].value)
+            output.close()
