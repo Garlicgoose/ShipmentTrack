@@ -20,11 +20,27 @@ class ManualFedExPodTests(unittest.TestCase):
             script, number = page.evaluate.call_args.args
             self.assertEqual("541964339019", number)
             self.assertIn("pointerdown", script)
+            self.assertIn("__shipmentTrackManualPending", script)
+            self.assertNotIn("setter.call", script)
             self.assertNotIn("requestSubmit", script)
             page.click.assert_not_called()
             page.goto.assert_called_once_with(
                 manual.TRACKING_PAGE, wait_until="domcontentloaded", timeout=45_000
             )
+
+    def test_types_real_keys_only_after_user_click(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController"):
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            page = mock.Mock()
+            session.page = page
+            page.evaluate.return_value = ""
+            self.assertFalse(session.fill_after_user_click("541964339019"))
+            page.keyboard.type.assert_not_called()
+            page.evaluate.return_value = "541964339019"
+            self.assertTrue(session.fill_after_user_click("541964339019"))
+            page.keyboard.press.assert_called_once_with("Control+A")
+            page.keyboard.type.assert_called_once_with("541964339019", delay=60)
 
     def test_detail_requires_current_number_and_changed_page(self):
         with tempfile.TemporaryDirectory() as temp_dir, \

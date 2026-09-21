@@ -27,13 +27,14 @@ BLOCK_PAGE_RE = re.compile(
     re.I,
 )
 
-# Only a real pointer click on a tracking input triggers the input. This script
-# never clicks TRACK or submits the form. Native value setter triggers React's
-# input/change listeners so the website itself can enable its TRACK button.
+# Only a real pointer click on a tracking input arms typing. The Playwright
+# worker sends actual key events afterwards; direct DOM value replacement may
+# leave FedEx's React TRACK button disabled. Nothing clicks or submits TRACK.
 ARM_INPUT_SCRIPT = r"""
 (number) => {
   const key = '__shipmentTrackManualFill';
   if (window[key]) document.removeEventListener('pointerdown', window[key], true);
+  window.__shipmentTrackManualPending = null;
   const handler = event => {
     const field = event.target?.closest?.('input, textarea');
     if (!field) return;
@@ -41,14 +42,7 @@ ARM_INPUT_SCRIPT = r"""
       .filter(Boolean).join(' ').toLowerCase();
     if (!/track|tracking|运单|追踪/.test(hint)) return;
     setTimeout(() => {
-      const setter = Object.getOwnPropertyDescriptor(
-        field.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
-        'value'
-      )?.set;
-      if (!setter) return;
-      setter.call(field, number);
-      field.dispatchEvent(new Event('input', {bubbles: true}));
-      field.dispatchEvent(new Event('change', {bubbles: true}));
+      window.__shipmentTrackManualPending = number;
       document.removeEventListener('pointerdown', handler, true);
       window[key] = null;
     }, 0);
@@ -99,6 +93,21 @@ class ManualFedExPodSession:
         if BLOCK_PAGE_RE.search(text):
             raise RuntimeError("FedEx 页面出现限流、验证码或服务错误；请人工处理后重试")
         return _main_page_ready(self.page, number)
+
+    def fill_after_user_click(self, number):
+        """Type only after the user actually clicks FedEx's tracking field."""
+        pending = self.page.evaluate(
+            """() => {
+                const number = window.__shipmentTrackManualPending;
+                window.__shipmentTrackManualPending = null;
+                return number || '';
+            }"""
+        )
+        if pending != number:
+            return False
+        self.page.keyboard.press("Control+A")
+        self.page.keyboard.type(number, delay=60)
+        return True
 
     def save_main(self, number):
         if not self.main_ready(number):

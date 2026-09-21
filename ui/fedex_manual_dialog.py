@@ -57,6 +57,8 @@ class ManualPodWorker(QThread):
                 session.prepare(number)
                 stage, snapshot, main_pdf = "main", None, ""
             try:
+                if stage == "main" and session.fill_after_user_click(number):
+                    self.message.emit("单号已逐字输入。请点击 TRACK。")
                 if stage == "main" and session.main_ready(number):
                     main_pdf, snapshot = session.save_main(number)
                     self.message.emit("主页 PDF 已保存。请手动点击 FedEx 详情。")
