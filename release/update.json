@@ -1,11 +1,11 @@
 {
   "version": "1.2",
-  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/6f77e293fc6e57765933949dcf6c3676c9a01355/release/Shipment%20Track.exe",
-  "sha256": "fcc706d057650ac59d7483a6ac23efc134966c16aecb7a5b9a4e299fd0823e47",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.2-manual-20260922/release/Shipment%20Track.exe",
+  "sha256": "edc5c254cd306e337aec0d614a20af33105583970c767e1dcbbfed9c595fd477",
   "notes": [
-    "五个承运商可分别设置 0% 至 100% 的 POD 抽查比例",
-    "FedEx 抽中时仍检查查询主页和详情页",
-    "移除 FedEx 签名和签收人专项检验",
-    "抽查 Excel 增加 POD 类型和抽查比例字段"
+    "FedEx 批量查询只取 API 状态，POD 改为半自动保存两页",
+    "网页承运商首次启动预留 10 秒登录，并在切换公司后关闭浏览器",
+    "设置分为四页，映射规则可预览并补充推荐规则",
+    "检验表保留较宽源文件的全部原始列，异常页标明缺失和空表"
   ]
 }
