@@ -1,7 +1,7 @@
 {
   "version": "1.2",
-  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.2-manual-20260922/release/Shipment%20Track.exe",
-  "sha256": "edc5c254cd306e337aec0d614a20af33105583970c767e1dcbbfed9c595fd477",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.2-manual-20260922-r2/release/Shipment%20Track.exe",
+  "sha256": "c7c2dca93c5a2ed4e30e8c1cb81c94ca06b10efa2ef173ee5a2fd72341a93ea5",
   "notes": [
     "FedEx 批量查询只取 API 状态，POD 改为半自动保存两页",
     "网页承运商首次启动预留 10 秒登录，并在切换公司后关闭浏览器",
