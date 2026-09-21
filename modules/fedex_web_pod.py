@@ -16,6 +16,7 @@ from urllib.error import URLError
 from urllib.parse import quote
 from urllib.request import urlopen
 
+from modules.real_browser import register_browser_process, terminate_browser_process
 from units import get_data_path
 
 
@@ -24,6 +25,12 @@ TRACKING_RESULT_URL = (
     "https://www.fedex.com/fedextrack/?trknbr={}&cntry_code=cn&locale=en_CN"
 )
 TRACKING_RE = re.compile(r"^[A-Za-z0-9]{8,30}$")
+SUBMIT_BUTTON_RE = re.compile(r"^(?:货件查询|追踪|track|track shipment)$", re.I)
+# FedEx 直达链接参数不对时会跳到 system-error / “找不到该运单号”，US 站且刷不出详情
+SYSTEM_ERROR_RE = re.compile(
+    r"can.t find that tracking number|check with the shipper|system-error",
+    re.I,
+)
 DETAIL_BUTTON_RE = re.compile(
     r"(?:view|see)\s+(?:more\s+|full\s+)?(?:shipment\s+)?details?|"
     r"shipment\s+details?|detailed\s+results?|travel\s+history|"
@@ -203,30 +210,100 @@ def _hide_print_overlays(page) -> None:
 def _submit_tracking_form(page, tracking_number: str, timeout_ms: int) -> None:
     page.goto(TRACKING_PAGE, wait_until="domcontentloaded", timeout=timeout_ms)
     _dismiss_cookie_banner(page)
+    box = _find_tracking_input(page, timeout_ms)
+    _dismiss_cookie_banner(page)
+    _fill_tracking_input(box, tracking_number)
+    _submit_tracking_entry(page, box, timeout_ms)
+
+
+def _find_tracking_input(page, timeout_ms: int):
     box = page.locator("input[id^='tracking_number_']:visible").first
     try:
         box.wait_for(state="visible", timeout=timeout_ms)
+        return box
     except Exception:
-        box = page.locator(
-            "input[name*='tracking']:visible, textarea[name*='tracking']:visible"
-        ).first
-        try:
-            box.wait_for(state="visible", timeout=5_000)
-        except Exception as exc:
-            raise FedExWebPodError("FedEx 查询输入框未出现") from exc
-    _dismiss_cookie_banner(page)
-    box.fill(tracking_number)
-    button = page.get_by_role(
-        "button",
-        name=re.compile(r"^(?:货件查询|追踪|track|track shipment)$", re.I),
-    )
-    if not button.count():
-        button = page.locator("button[type='submit']:visible")
+        pass
+    box = page.locator(
+        "input[name*='tracking']:visible, textarea[name*='tracking']:visible"
+    ).first
     try:
-        button.first.wait_for(state="visible", timeout=10_000)
+        box.wait_for(state="visible", timeout=5_000)
+    except Exception as exc:
+        raise FedExWebPodError("FedEx 查询输入框未出现") from exc
+    return box
+
+
+def _fill_tracking_input(box, tracking_number: str) -> None:
+    """逐字输入，不能只用 fill()。
+
+    FedEx 追踪页是 React 表单，locator.fill() 直接写值不会让提交按钮脱离
+    disabled（实测点击报 “element is not enabled”），点进输入框用真实按键
+    逐字输入才会启用，最后再补发 input/change 事件兜底。
+    """
+    try:
+        box.click(timeout=5_000)
+        box.press("Control+A")
+        box.press("Backspace")
+    except Exception:
+        pass
+    box.press_sequentially(str(tracking_number), delay=60)
+    try:
+        box.evaluate(
+            "el => { el.dispatchEvent(new Event('input', {bubbles: true}));"
+            " el.dispatchEvent(new Event('change', {bubbles: true})); }"
+        )
+    except Exception:
+        pass
+
+
+def _track_button(page):
+    button = page.get_by_role("button", name=SUBMIT_BUTTON_RE)
+    if button.count():
+        return button.first
+    return page.locator("button[type='submit']:visible").first
+
+
+# CN 追踪页上有多个 TRACK 按钮（首屏组件 + 手风琴），取“第一个可用的”会点错组件；
+# 先回车，再点输入框所在 form 内的提交按钮。
+SUBMIT_IN_FORM_SCRIPT = """
+el => {
+  const form = el.closest('form');
+  if (!form) return false;
+  const button = form.querySelector("button[type=submit], button:not([type])");
+  if (button && !button.disabled) { button.click(); return true; }
+  if (typeof form.requestSubmit === 'function') { form.requestSubmit(); return true; }
+  return false;
+}
+"""
+
+
+def _submit_tracking_entry(page, box, timeout_ms: int) -> str:
+    """提交查询：Enter → 同一表单内的提交按钮 → 任意可用 TRACK 按钮。"""
+    try:
+        box.press("Enter")
+        return "enter"
+    except Exception:
+        pass
+    try:
+        if box.evaluate(SUBMIT_IN_FORM_SCRIPT):
+            return "form-button"
+    except Exception:
+        pass
+    button = _track_button(page)
+    try:
+        button.wait_for(state="visible", timeout=min(10_000, timeout_ms))
     except Exception as exc:
         raise FedExWebPodError("FedEx 查询按钮未出现") from exc
-    button.first.click(timeout=10_000)
+    deadline = time.monotonic() + max(5.0, min(timeout_ms / 1000.0, 15.0))
+    while time.monotonic() < deadline:
+        try:
+            if button.is_enabled():
+                button.click(timeout=8_000)
+                return "button"
+        except Exception:
+            pass
+        page.wait_for_timeout(300)
+    raise FedExWebPodError("FedEx 查询提交失败（回车与按钮都不可用）")
 
 
 def _wait_for_main_page(page, tracking_number: str, timeout_seconds: int) -> None:
@@ -238,6 +315,21 @@ def _wait_for_main_page(page, tracking_number: str, timeout_seconds: int) -> Non
     raise FedExWebPodError("等待 FedEx 查询结果主页超时")
 
 
+def _is_system_error_page(page) -> bool:
+    """是否落到 FedEx 的 system-error / “找不到该运单号”页面（通常是 US 站）。"""
+    try:
+        url = str(getattr(page, "url", "") or "")
+    except Exception:
+        url = ""
+    if "system-error" in url.casefold():
+        return True
+    try:
+        text = str(_body_text(page) or "")
+    except Exception:
+        return False
+    return bool(SYSTEM_ERROR_RE.search(text))
+
+
 def _open_details(
     page,
     main_text: str,
@@ -245,6 +337,13 @@ def _open_details(
     tracking_number: str = "",
 ) -> None:
     candidate = _visible_detail_candidate(page, tracking_number)
+    if candidate is None:
+        # 结果页是异步渲染的 SPA，“View more details”按钮可能稍后才出现，
+        # 轮询等它出来再点，而不是立刻放弃。
+        poll_deadline = time.monotonic() + min(timeout_seconds, 15)
+        while candidate is None and time.monotonic() < poll_deadline:
+            page.wait_for_timeout(1_000)
+            candidate = _visible_detail_candidate(page, tracking_number)
     if candidate is None:
         raise FedExWebPodError("没有找到 FedEx‘查看更多详细信息’")
     candidate.click(timeout=5_000)
@@ -265,25 +364,36 @@ def _print_current_page(context, page, destination: Path) -> None:
     _hide_print_overlays(page)
     temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
     session = context.new_cdp_session(page)
+    last_error = None
     try:
-        result = session.send(
-            "Page.printToPDF",
-            {
-                "landscape": False,
-                "displayHeaderFooter": False,
-                "printBackground": True,
-                "paperWidth": 8.27,
-                "paperHeight": 11.69,
-                "marginTop": 0.25,
-                "marginBottom": 0.25,
-                "marginLeft": 0.25,
-                "marginRight": 0.25,
-            },
-        )
-        temporary.write_bytes(base64.b64decode(result["data"], validate=True))
-        if not is_valid_pdf(temporary):
-            raise FedExWebPodError(f"Edge 生成的 PDF 无效：{destination.name}")
-        temporary.replace(destination)
+        # 结果页是异步渲染的 SPA，有时第一次 printToPDF 时还没画完，等它稳定再打印，
+        # 失败就重试几次。
+        for attempt in range(3):
+            if attempt:
+                page.wait_for_timeout(3_000)
+            try:
+                result = session.send(
+                    "Page.printToPDF",
+                    {
+                        "landscape": False,
+                        "displayHeaderFooter": False,
+                        "printBackground": True,
+                        "paperWidth": 8.27,
+                        "paperHeight": 11.69,
+                        "marginTop": 0.25,
+                        "marginBottom": 0.25,
+                        "marginLeft": 0.25,
+                        "marginRight": 0.25,
+                    },
+                )
+                temporary.write_bytes(base64.b64decode(result["data"], validate=True))
+                if not is_valid_pdf(temporary):
+                    raise FedExWebPodError(f"Edge 生成的 PDF 无效：{destination.name}")
+                temporary.replace(destination)
+                return
+            except Exception as exc:
+                last_error = exc
+        raise last_error or FedExWebPodError("Edge 打印 PDF 失败")
     finally:
         try:
             session.detach()
@@ -338,11 +448,19 @@ class FedExEdgePodSession:
             "--disable-background-timer-throttling",
             "--no-first-run",
             "--no-default-browser-check",
-            "--new-window",
-            TRACKING_PAGE,
+            # 不恢复上次会话、不弹“恢复页面”气泡，避免多出没被最小化的窗口
+            "--hide-crash-restore-bubble",
+            "--disable-session-crashed-bubble",
+            # 语言信号锁英文（FedEx 官网按浏览器语言给页面，中文会找不到英文选择器）
+            "--lang=en-US",
+            "--accept-lang=en-US,en;q=0.9",
         ]
+        if self.minimize_browser:
+            command.append("--start-minimized")
+        command += ["--new-window", TRACKING_PAGE]
         self.log("启动真实 Microsoft Edge，准备保存 FedEx 网页 POD")
         self.process = subprocess.Popen(command, close_fds=True)
+        register_browser_process(self.process)
         _wait_for_cdp(cdp_url)
         self.browser = self.playwright.chromium.connect_over_cdp(cdp_url)
         if not self.browser.contexts:
@@ -350,36 +468,117 @@ class FedExEdgePodSession:
         self.context = self.browser.contexts[0]
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.page.set_default_timeout(15_000)
-        if self.warmup_seconds:
-            self.log(
-                f"FedEx Edge 预热 {self.warmup_seconds} 秒；如公司要求登录，请现在完成登录"
+        self._pin_chinese_english_locale()
+        # 程序自己把站点切到 CN 英文版，不依赖用户手动选择
+        self._ensure_chinese_english_page()
+        # 预热会话：接受 cookie 同意并等它生效。冷会话下直达链接会被 FedEx
+        # 重定向到 system-error（US 站），必须先建立会话状态。
+        try:
+            _dismiss_cookie_banner(self.page)
+            self.page.wait_for_timeout(3_000)
+        except Exception:
+            pass
+        self.minimize_window()
+
+    def minimize_window(self) -> None:
+        """最小化（只在启动时调用一次；用户手动点开后不再重复最小化）。"""
+        if not self.minimize_browser:
+            return
+        try:
+            cdp = self.context.new_cdp_session(self.page)
+            info = cdp.send("Browser.getWindowForTarget")
+            cdp.send(
+                "Browser.setWindowBounds",
+                {"windowId": info["windowId"], "bounds": {"windowState": "minimized"}},
             )
-            self.page.wait_for_timeout(self.warmup_seconds * 1000)
-        if self.minimize_browser:
+            cdp.detach()
+        except Exception:
+            pass
+
+    def _ensure_chinese_english_page(self) -> bool:
+        """确保站点是 CN 英文版（en-cn）：不是就重设语言 cookie 再进一次。"""
+        lang = ""
+        for attempt in range(2):
             try:
-                cdp = self.context.new_cdp_session(self.page)
-                info = cdp.send("Browser.getWindowForTarget")
-                cdp.send(
-                    "Browser.setWindowBounds",
-                    {"windowId": info["windowId"], "bounds": {"windowState": "minimized"}},
-                )
-                cdp.detach()
+                lang = str(
+                    self.page.evaluate("() => document.documentElement.lang || ''")
+                ).casefold()
             except Exception:
-                pass
+                lang = ""
+            if lang.startswith("en-cn"):
+                self.log("FedEx 站点语言：CN 英文（en-cn）")
+                return True
+            if attempt == 0:
+                self._pin_chinese_english_locale()
+                try:
+                    self.page.goto(
+                        TRACKING_PAGE, wait_until="domcontentloaded", timeout=self.timeout_ms
+                    )
+                    _dismiss_cookie_banner(self.page)
+                except Exception:
+                    pass
+        self.log(f"FedEx 站点语言为 {lang or '未知'}，继续按 CN 英文站链接查询")
+        return False
 
     def _load_main_page(self, tracking_number: str) -> None:
+        """先走 CN 英文站表单查询（和人工操作一致，并顺带把会话“预热”）。
+
+        冷会话下直达链接会被 FedEx 重定向到 /fedextrack/system-error（US 站），
+        所以先用表单流程建立会话状态，直达链接只作兜底。
+        """
+        last_error = None
         try:
             _submit_tracking_form(self.page, tracking_number, self.timeout_ms)
             _wait_for_main_page(self.page, tracking_number, self.timeout_seconds)
             return
-        except Exception as first_error:
-            self.log(f"FedEx 表单查询未完成，改用官网直达查询：{first_error}")
-        self.page.goto(
-            TRACKING_RESULT_URL.format(quote(tracking_number)),
-            wait_until="domcontentloaded",
-            timeout=self.timeout_ms,
+        except Exception as exc:
+            last_error = exc
+            self.log(f"FedEx 表单查询未完成，改用官网直达链接：{exc}")
+        for attempt in range(2):
+            self.page.goto(
+                TRACKING_RESULT_URL.format(quote(tracking_number)),
+                wait_until="domcontentloaded",
+                timeout=self.timeout_ms,
+            )
+            try:
+                _wait_for_main_page(self.page, tracking_number, self.timeout_seconds)
+                return
+            except Exception as exc:
+                last_error = exc
+                if not _is_system_error_page(self.page):
+                    break
+                self.log(
+                    f"FedEx 返回 US 站 system-error 页面，第 {attempt + 1} 次重试 CN 英文站"
+                )
+                self.page.wait_for_timeout(2_000)
+                self._reopen_chinese_site()
+        raise FedExWebPodError(
+            "FedEx CN 英文站没有返回运单结果（表单查询与直达链接都失败）；"
+            f"最后错误：{last_error}"
         )
-        _wait_for_main_page(self.page, tracking_number, self.timeout_seconds)
+
+    def _pin_chinese_english_locale(self) -> None:
+        """固定 CN 英文站语言：US 站不稳，详情经常刷不出来。"""
+        try:
+            self.context.add_cookies([
+                {
+                    "name": "fdx_locale",
+                    "value": "en_CN",
+                    "domain": ".fedex.com",
+                    "path": "/",
+                }
+            ])
+        except Exception:
+            pass
+
+    def _reopen_chinese_site(self) -> None:
+        """回到 CN 英文追踪页，顺带把语言 cookie 固定成 en_CN。"""
+        self._pin_chinese_english_locale()
+        try:
+            self.page.goto(TRACKING_PAGE, wait_until="domcontentloaded", timeout=self.timeout_ms)
+            _dismiss_cookie_banner(self.page)
+        except Exception:
+            pass
 
     def download(self, tracking_number: str) -> FedExWebPodResult:
         number = normalize_tracking_number(tracking_number)
@@ -404,6 +603,7 @@ class FedExEdgePodSession:
             )
 
     def close(self) -> None:
+        """关掉这个 Edge（连同子进程），不在桌面上留窗口。"""
         browser, process = self.browser, self.process
         self.page = self.context = self.browser = self.process = None
         if browser is not None:
@@ -411,12 +611,4 @@ class FedExEdgePodSession:
                 browser.close()
             except Exception:
                 pass
-        if process is not None:
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
+        terminate_browser_process(process)

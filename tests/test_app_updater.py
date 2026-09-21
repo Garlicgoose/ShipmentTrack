@@ -88,6 +88,25 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
+    def test_in_app_changelog_keeps_only_the_four_v12_items(self):
+        """用户指定：1.2 的更新内容只保留这四条（其余条目从更新日志删除）。"""
+        self.assertEqual(
+            (
+                "增加 POD 抽查比例",
+                "移除已失效的 FedEx 签名和签收人字段",
+                "FedEx POD 改用真实浏览器（Edge）查询网页",
+                "修复 FedEx API 相关的 bug",
+            ),
+            app_updater.CURRENT_CHANGELOG,
+        )
+
+    def test_changelog_file_matches_release_notes(self):
+        changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
+        section = changelog.split("## 1.2")[1].split("## 1.1")[0]
+        for note in app_updater.CURRENT_CHANGELOG:
+            self.assertIn(note, section)
+        self.assertNotIn("设置页拆成四个标签页", section)
+
 
 if __name__ == "__main__":
     unittest.main()

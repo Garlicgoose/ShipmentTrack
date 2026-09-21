@@ -45,6 +45,7 @@ TRACKING_CARRIER_CONFIG = {
         "viewport": {"width": 1500, "height": 900},
         "pdf_subdir": "DSV",
         "locale": "en-US",
+        "force_english": True,
     },
     "EI": {
         "module": "modules.ei_module",
@@ -55,6 +56,7 @@ TRACKING_CARRIER_CONFIG = {
         "viewport": {"width": 1500, "height": 900},
         "pdf_subdir": "EI",
         "locale": "en-US",
+        "force_english": True,
     },
     "UPS": {
         "module": "modules.ups_module",
@@ -369,6 +371,13 @@ class TrackingCarrierSession:
             self.log(f"{self.carrier} 执行预热函数：{warmup_func_name}")
             warmup_func = getattr(self.module, warmup_func_name)
             warmup_func(self.page)
+
+        # DSV / EI 官网没有把语言写进 URL，落地后如果仍是中文再兜底切英文。
+        if self.config.get("force_english"):
+            try:
+                self.browser_controller.ensure_english_page(self.page)
+            except Exception:
+                pass
 
         # 预热后再统一清理一次残留弹窗/浮层，确保查询不被遮挡
         self._cleanup_overlays()

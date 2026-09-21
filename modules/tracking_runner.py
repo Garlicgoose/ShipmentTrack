@@ -17,7 +17,6 @@ from modules.tracking_utils import (
     TrackingCarrierSession,
 )
 from modules import fedex_module
-from modules.fedex_web_pod import FedExEdgePodSession
 from modules.pod_audit import audit_pod_sample
 
 
@@ -58,11 +57,13 @@ def run_tracking(
     result=None,
     delivery_statuses=None,
     audit_rates=None,
+    login_wait_seconds=30,
 ):
     """执行批量查询。三个回调用于日志、进度和逐条结果。"""
     log = log or (lambda msg: None)
     progress = progress or (lambda v: None)
     result = result or (lambda item: None)
+    login_wait_seconds = max(0, int(login_wait_seconds or 0))
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -105,8 +106,10 @@ def run_tracking(
     results = []
     current_carrier = None
     session = None
-    fedex_pod_session = None
     playwright = None
+    # “等公司登录”放在查询刚开始执行一次（Edge 才需要，Chrome 不需要），
+    # 不跟 FedEx 网页 POD 捆绑。
+    company_login_wait_done = browser_type != "edge"
 
     try:
         from playwright.sync_api import sync_playwright
@@ -117,7 +120,7 @@ def run_tracking(
             carrier = row["快递公司"]
             tracking_number = row["运单号"]
 
-            # 换承运商时切换会话
+            # 换承运商时关闭旧会话；FedEx 只通过 API 查询状态。
             if carrier != current_carrier:
                 if session is not None:
                     session.close()
@@ -141,42 +144,33 @@ def run_tracking(
                         delivery_statuses=delivery_statuses,
                     )
                     session.start()
+                    if not company_login_wait_done:
+                        company_login_wait_done = True
+                        if login_wait_seconds:
+                            log(
+                                f"如公司要求登录，请在浏览器中完成登录，"
+                                f"等待 {login_wait_seconds} 秒后自动继续查询"
+                            )
+                            time.sleep(login_wait_seconds)
 
             start_time = time.perf_counter()
 
             try:
                 if TRACKING_CARRIER_CONFIG[carrier].get("api_based"):
-                    # FedEx API 只负责快速判断状态；已送达后的两份网页 POD
-                    # 由系统安装的真实 Edge 打印，不调用官方 POD 文档接口。
+                    # FedEx API 只负责状态。网页 POD 由用户在独立半自动面板
+                    # 亲自提交 TRACK 和打开详情，本批量任务不操作 FedEx 网页。
                     raw_result = fedex_module.query_fedex_one(
                         tracking_number,
                         api_key=fedex_api_key,
                         api_secret=fedex_api_secret,
                         save_pdf=False,
                     )
-                    if save_pdf and _is_delivered_truthy(
-                        raw_result.get("is_delivered")
-                    ):
-                        if playwright is None:
-                            playwright = sync_playwright().start()
-                        if fedex_pod_session is None:
-                            fedex_pod_session = FedExEdgePodSession(
-                                playwright,
-                                pdf_root / "FedEx",
-                                edge_path=(browser_path if browser_type == "edge" else ""),
-                                minimize_browser=minimize_browser,
-                                log_func=log,
-                            )
-                        pod_result = fedex_pod_session.download(tracking_number)
-                        raw_result["pdf_file"] = pod_result.main_pdf
-                        raw_result["detail_pdf_file"] = pod_result.detail_pdf
-                        if not pod_result.ok:
-                            pod_error = "FedEx网页POD未完整生成：" + pod_result.error
-                            raw_result["flag"] = " | ".join(
-                                value for value in (
-                                    raw_result.get("flag", ""), pod_error
-                                ) if value
-                            )
+                    if save_pdf and _is_delivered_truthy(raw_result.get("is_delivered")):
+                        raw_result["flag"] = " | ".join(
+                            value for value in (
+                                raw_result.get("flag", ""), "FedEx POD 待半自动保存"
+                            ) if value
+                        )
                 else:
                     raw_result = session.query_one(tracking_number)
 
@@ -231,6 +225,15 @@ def run_tracking(
                 log(f"[{idx + 1}/{total}] {carrier} {tracking_number} Error: {e}")
 
             progress(int(((idx + 1) / total) * 100))
+            # 该公司查完（下一条换承运商或已是最后一条）就立刻关掉浏览器，
+            # 不要等到下家公司开始，更不能把窗口留在桌面上。
+            last_of_carrier = (
+                idx + 1 >= total or work_rows[idx + 1]["快递公司"] != carrier
+            )
+            if last_of_carrier:
+                if session is not None:
+                    session.close()
+                    session = None
             # FedEx 复用 Session/Token，不需要浏览器操作间隔；网页承运商
             # 保留短间隔，避免连续页面跳转造成站点不稳定。
             if not TRACKING_CARRIER_CONFIG[carrier].get("api_based"):
@@ -240,8 +243,10 @@ def run_tracking(
             session.close()
             session = None
     finally:
-        if fedex_pod_session is not None:
-            fedex_pod_session.close()
+        # 兜底：无论中途是否异常，都确保浏览器被关掉，不留窗口在桌面上。
+        if session is not None:
+            session.close()
+            session = None
         if playwright is not None:
             try:
                 playwright.stop()

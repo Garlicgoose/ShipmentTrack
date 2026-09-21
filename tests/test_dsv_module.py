@@ -82,6 +82,46 @@ class DsvNavigationTests(unittest.TestCase):
         page.locator.return_value.inner_text.return_value = "Summary\nShipment Progress\nCompleted"
         self.assertTrue(dsv.is_dsv_detail_page(page))
 
+    def test_wait_for_status_keeps_polling_until_card_renders(self):
+        """回归：结果卡片比 “Showing N results” 晚渲染时不能直接判 Unknown。"""
+        page = mock.Mock()
+        page.locator.return_value.inner_text.side_effect = [
+            "Showing 1 of 1 results Shipment ID SMFM0013890 Status",
+            "Showing 1 of 1 results Status Completed Actual delivery 08-Sep-2026 15:00",
+        ]
+        status, text = dsv.wait_for_status(page, attempts=5, delay=0)
+        self.assertEqual("Completed", status)
+        self.assertIn("08-Sep-2026", text)
+
+    def test_wait_for_status_reports_unknown_after_retries(self):
+        page = mock.Mock()
+        page.locator.return_value.inner_text.return_value = "Showing 1 of 1 results Status"
+        status, _text = dsv.wait_for_status(page, attempts=3, delay=0)
+        self.assertEqual("Unknown", status)
+        self.assertEqual(3, page.locator.return_value.inner_text.call_count)
+
+    def test_query_dsv_one_rerenders_status_before_giving_up(self):
+        page = mock.Mock()
+        page.locator.return_value.inner_text.side_effect = [
+            "Showing 1 of 1 results Status",  # 第一次读不到状态
+            "Showing 1 of 1 results Status Completed",  # 轮询后读到
+        ]
+        page.url = "https://mydsv.com/new/tracking/track-shipment"
+        with mock.patch.object(dsv, "search_dsv_tracking"), \
+             mock.patch.object(dsv, "wait_for_status", wraps=dsv.wait_for_status) as wait, \
+             mock.patch.object(dsv, "click_dsv_shipment_result", return_value=False):
+            result = dsv.query_dsv_one(page, "SMFM0013890", save_pdf=False)
+        self.assertEqual("Completed", result["status"])
+        self.assertTrue(result["is_delivered"])
+        wait.assert_called_once()
+
+    def test_extract_status_recognizes_in_progress(self):
+        """回归：DSV 结果卡里 “In Progress” 之前没进关键词表，被判 Unknown。"""
+        self.assertEqual(
+            "In Progress",
+            dsv.extract_status_from_text("Showing 1 of 1 results Status In Progress"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

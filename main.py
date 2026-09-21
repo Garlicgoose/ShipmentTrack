@@ -11,7 +11,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from PySide6.QtWidgets import QApplication, QMessageBox
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtCore import QTimer
 
 
@@ -43,6 +43,7 @@ def main():
     try:
         from ui.main_window import MainWindow, APP_ICON
         from ui.startup_dialog import StartupDialog
+        from modules.real_browser import close_all_launched_browsers
     except Exception:
         if smoke_test:
             try:
@@ -54,6 +55,8 @@ def main():
             return 2
         raise
     app.setWindowIcon(QIcon(APP_ICON))
+    # 退出时兜底：把程序启动的浏览器窗口全部关掉，不要留在桌面上
+    app.aboutToQuit.connect(close_all_launched_browsers)
 
     # 打包后的离线冒烟测试：只验证依赖、资源和主窗口可创建，
     # 不进入授权检查，也不会启动任何查询任务。
@@ -69,12 +72,16 @@ def main():
                 "modules.ups_module",
                 "modules.fedex_module",
                 "modules.fedex_web_pod",
+                "modules.fedex_manual_pod",
             ):
                 importlib.import_module(module_name)
             from ui.main_window import PROFILE_AVATAR
             for resource in (APP_ICON, PROFILE_AVATAR):
                 if not Path(resource).is_file():
                     raise FileNotFoundError(f"Packaged resource missing: {resource}")
+                # 图片插件被裁掉时文件仍在但读不出来，必须实际解码一次
+                if QPixmap(resource).isNull():
+                    raise ValueError(f"Packaged resource unreadable: {resource}")
             window = MainWindow()
             window.show()
             QTimer.singleShot(100, window.close)

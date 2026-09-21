@@ -255,6 +255,7 @@ def extract_status_from_text(page_text):
         "Delivered",
         "In transit",
         "In Transit",
+        "In Progress",
         "Booked",
         "Cargo received",
         "Port of loading",
@@ -269,6 +270,24 @@ def extract_status_from_text(page_text):
             return status
 
     return "Unknown"
+
+
+def wait_for_status(page, attempts=10, delay=1.5):
+    """结果卡片可能比 “Showing N results” 晚渲染：读不到状态就再等一会儿。
+
+    返回 (status, page_text)；page_text 供随后提取抵达时间。
+    """
+    page_text = ""
+    for _ in range(max(1, int(attempts))):
+        try:
+            page_text = page.locator("body").inner_text(timeout=5000)
+        except Exception:
+            page_text = ""
+        status = extract_status_from_text(page_text)
+        if status != "Unknown":
+            return status, page_text
+        time.sleep(delay)
+    return "Unknown", page_text
 
 
 def extract_arrival_from_search_result(page_text):
@@ -737,6 +756,9 @@ def query_dsv_one(page, tracking_number, save_pdf=True):
             return result
 
         status = extract_status_from_text(page_text)
+        if status == "Unknown":
+            # 结果卡片有时比 “Showing N results” 晚渲染，轮询再读几次再判 Unknown
+            status, page_text = wait_for_status(page)
         result["status"] = status
 
         arrival_time = extract_arrival_from_search_result(page_text)

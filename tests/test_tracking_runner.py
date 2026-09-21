@@ -77,7 +77,7 @@ class TrackingRunnerTests(unittest.TestCase):
             result_book = load_workbook(output, data_only=True)
             self.assertEqual("123456789012", str(result_book.active["A2"].value))
 
-    def test_delivered_fedex_uses_real_edge_for_two_web_pdfs(self):
+    def test_delivered_fedex_defers_web_pod_to_manual_panel(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             input_file = root / "input.xlsx"
@@ -87,15 +87,6 @@ class TrackingRunnerTests(unittest.TestCase):
             sheet.append(("FedEx", "519470439011"))
             workbook.save(input_file)
             emitted = []
-            edge_session = mock.Mock()
-            edge_session.download.return_value = SimpleNamespace(
-                ok=True,
-                main_pdf=str(root / "519470439011.pdf"),
-                detail_pdf=str(root / "519470439011+.pdf"),
-                error="",
-            )
-            playwright_manager = mock.Mock()
-            playwright_manager.start.return_value = mock.Mock()
             with mock.patch(
                 "modules.tracking_runner.fedex_module.query_fedex_one",
                 return_value={
@@ -103,12 +94,8 @@ class TrackingRunnerTests(unittest.TestCase):
                     "arrival_time": "2026-09-09", "error": "", "flag": "",
                 },
             ) as query, mock.patch(
-                "modules.tracking_runner.FedExEdgePodSession",
-                return_value=edge_session,
-            ) as edge, mock.patch(
                 "playwright.sync_api.sync_playwright",
-                return_value=playwright_manager,
-            ), mock.patch(
+            ) as browser, mock.patch(
                 "modules.tracking_runner.audit_pod_sample", return_value=[]
             ):
                 output = run_tracking(
@@ -122,14 +109,124 @@ class TrackingRunnerTests(unittest.TestCase):
                 )
 
             self.assertFalse(query.call_args.kwargs["save_pdf"])
-            edge.assert_called_once()
-            edge_session.download.assert_called_once_with("519470439011")
-            edge_session.close.assert_called_once()
-            self.assertTrue(emitted[0]["POD文件"].endswith("519470439011.pdf"))
-            self.assertTrue(emitted[0]["POD详情文件"].endswith("519470439011+.pdf"))
+            browser.assert_not_called()
+            self.assertEqual("", emitted[0]["POD文件"])
+            self.assertEqual("", emitted[0]["POD详情文件"])
+            self.assertIn("待半自动保存", emitted[0]["备注"])
             result_book = load_workbook(output, data_only=True)
             headers = [cell.value for cell in result_book.active[1]]
             self.assertIn("POD详情文件", headers)
+
+    def test_each_carrier_browser_closes_right_after_its_rows(self):
+        """回归：每家公司查完必须立刻关掉浏览器，不要留窗口到桌面。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_file = root / "input.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(("快递公司", "运单号"))
+            sheet.append(("DHL", "1234567890"))
+            sheet.append(("DHL", "1234567891"))
+            sheet.append(("UPS", "1Z9999999999999999"))
+            workbook.save(input_file)
+
+            events = []
+
+            def make_session(**kwargs):
+                carrier = kwargs["carrier"]
+                session = mock.Mock()
+                session.query_one.return_value = {
+                    "status": "In transit", "is_delivered": False,
+                    "arrival_time": "", "error": "", "flag": "",
+                }
+                session.start.side_effect = lambda: events.append(f"start:{carrier}")
+                session.close.side_effect = lambda: events.append(f"close:{carrier}")
+                return session
+
+            playwright_manager = mock.Mock()
+            playwright_manager.start.return_value = mock.Mock()
+            with mock.patch(
+                "modules.tracking_runner.TrackingCarrierSession", side_effect=make_session
+            ), mock.patch(
+                "playwright.sync_api.sync_playwright", return_value=playwright_manager
+            ), mock.patch(
+                "modules.tracking_runner.fedex_module.close_shared_session"
+            ):
+                run_tracking(
+                    input_file=input_file,
+                    output_dir=root / "output",
+                    save_pdf=False,
+                    login_wait_seconds=0,
+                )
+
+        # 同一家公司两条单共用一次会话；两条查完立刻关闭，再开下家的浏览器
+        self.assertEqual(
+            ["start:DHL", "close:DHL", "start:UPS", "close:UPS"],
+            events,
+        )
+
+    def test_company_login_wait_runs_once_at_start_for_edge_only(self):
+        """回归：等公司登录放在查询最开始，只 Edge 且只一次，Chrome 不需要。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            def make_input():
+                path = root / "input.xlsx"
+                workbook = Workbook()
+                sheet = workbook.active
+                sheet.append(("快递公司", "运单号"))
+                sheet.append(("DHL", "1234567890"))
+                sheet.append(("UPS", "1Z9999999999999999"))
+                workbook.save(path)
+                return path
+
+            def make_session(**kwargs):
+                session = mock.Mock()
+                session.query_one.return_value = {
+                    "status": "In transit", "is_delivered": False,
+                    "arrival_time": "", "error": "", "flag": "",
+                }
+                return session
+
+            playwright_manager = mock.Mock()
+            playwright_manager.start.return_value = mock.Mock()
+
+            # Edge：登录等待只出现一次
+            edge_logs = []
+            with mock.patch(
+                "modules.tracking_runner.TrackingCarrierSession", side_effect=make_session
+            ), mock.patch(
+                "playwright.sync_api.sync_playwright", return_value=playwright_manager
+            ), mock.patch("modules.tracking_runner.time.sleep") as sleep, mock.patch(
+                "modules.tracking_runner.fedex_module.close_shared_session"
+            ):
+                run_tracking(
+                    input_file=make_input(), output_dir=root / "out_edge",
+                    save_pdf=False, browser_type="edge",
+                    log=edge_logs.append, login_wait_seconds=7,
+                )
+            self.assertEqual(1, len([m for m in edge_logs if "公司要求登录" in m]))
+            sleep.assert_any_call(7)
+
+            # Chrome：不等待
+            chrome_logs = []
+            with mock.patch(
+                "modules.tracking_runner.TrackingCarrierSession", side_effect=make_session
+            ), mock.patch(
+                "playwright.sync_api.sync_playwright", return_value=playwright_manager
+            ), mock.patch("modules.tracking_runner.time.sleep") as sleep, mock.patch(
+                "modules.tracking_runner.fedex_module.close_shared_session"
+            ):
+                run_tracking(
+                    input_file=make_input(), output_dir=root / "out_chrome",
+                    save_pdf=False, browser_type="chrome",
+                    log=chrome_logs.append, login_wait_seconds=7,
+                )
+            self.assertEqual(0, len([m for m in chrome_logs if "公司要求登录" in m]))
+            self.assertEqual(
+                [],
+                [c for c in sleep.call_args_list if c.args and c.args[0] == 7],
+            )
 
 
 if __name__ == "__main__":

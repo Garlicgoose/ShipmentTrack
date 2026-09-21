@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from modules.excel_reconcile import merge_and_reconcile_excel
+from modules.fedex_manual_pod import update_tracking_result_file
 from modules import app_updater
 from modules.settings_store import SettingsStore
 from ui.components import (
@@ -49,6 +50,7 @@ from ui.components import (
     position_popup,
 )
 from ui.settings_page import SettingsPage
+from ui.fedex_manual_dialog import FedExManualDialog
 from ui.styles import APP_STYLE
 from ui.workers import TaskWorker
 from units import detect_browser_path, get_resource_path
@@ -86,6 +88,8 @@ class MainWindow(QMainWindow):
         self._page_overlay = None
         self._page_transitioning = False
         self._tracking_output_paths = {}
+        self._fedex_manual_jobs = []
+        self._fedex_manual_dialog = None
         self._excel_output_paths = {}
         self._tracking_run_output_dir = None
         self._tracking_counts = {
@@ -354,7 +358,7 @@ class MainWindow(QMainWindow):
         self.pod_switch = ToggleSwitch()
         self.pod_switch.setObjectName("podSwitch")
         self.pod_switch.setChecked(not bool(self.settings.get("only_arrival")))
-        self.pod_switch.setToolTip("关闭后只查询状态，不下载 POD")
+        self.pod_switch.setToolTip("其他承运商自动下载；FedEx 送达后在半自动面板保存 POD")
         mode_row.addWidget(self.pod_switch)
         mode_row.addWidget(QLabel("POD"))
         mode_row.addStretch(1)
@@ -439,9 +443,14 @@ class MainWindow(QMainWindow):
         self.open_tracking_result = OpenFileButton("打开结果")
         self.open_cleaned_result = OpenFileButton("打开清洗文件")
         self.open_pod_audit = OpenFileButton("打开 POD 抽查")
+        self.open_fedex_manual = QPushButton("FedEx 半自动 POD")
+        self.open_fedex_manual.setObjectName("smallButton")
+        self.open_fedex_manual.setEnabled(False)
+        self.open_fedex_manual.clicked.connect(self._open_fedex_manual)
         log_header.addWidget(self.open_tracking_result)
         log_header.addWidget(self.open_cleaned_result)
         log_header.addWidget(self.open_pod_audit)
+        log_header.addWidget(self.open_fedex_manual)
         results_layout.addLayout(log_header)
         self.tracking_log = QPlainTextEdit()
         self.tracking_log.setObjectName("trackingLog")
@@ -653,6 +662,8 @@ class MainWindow(QMainWindow):
         ):
             button.set_path("")
         self._tracking_output_paths = {}
+        self._fedex_manual_jobs = []
+        self.open_fedex_manual.setEnabled(False)
         self._tracking_counts = {
             "total": 0, "delivered": 0, "transit": 0, "attention": 0
         }
@@ -704,6 +715,14 @@ class MainWindow(QMainWindow):
         self._tracking_worker.start()
 
     def _append_tracking_result(self, result):
+        if (
+            str(result.get("快递公司", "")).casefold() == "fedex"
+            and result.get("is_delivered")
+            and self.pod_switch.isChecked()
+        ):
+            number = str(result.get("运单号", ""))
+            if number and number not in self._fedex_manual_jobs:
+                self._fedex_manual_jobs.append(number)
         row = self.tracking_table.rowCount()
         self.tracking_table.insertRow(row)
         values = [
@@ -856,6 +875,7 @@ class MainWindow(QMainWindow):
         self._update_tracking_elapsed()
         self._set_tracking_running(False)
         if ok:
+            self.open_fedex_manual.setEnabled(bool(self._fedex_manual_jobs))
             self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 100)
             self._show_status("查询完成")
             self.overview_state_label.setText("查询完成")
@@ -875,6 +895,47 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "ShipmentTrack", error or "查询失败")
         self._tracking_worker = None
         self._tracking_run_output_dir = None
+
+    def _open_fedex_manual(self):
+        if self._fedex_manual_dialog and self._fedex_manual_dialog.isVisible():
+            self._fedex_manual_dialog.raise_()
+            return
+        if not self._fedex_manual_jobs:
+            QMessageBox.information(self, "ShipmentTrack", "本次没有已送达的 FedEx 运单。")
+            return
+        output_dir = Path(self.tracking_output.value()) / "pdf" / "FedEx"
+        self._fedex_manual_dialog = FedExManualDialog(
+            self._fedex_manual_jobs,
+            output_dir,
+            self.settings.get("browser_type", "edge"),
+            self.settings.get("browser_path", ""),
+            self,
+        )
+        self._fedex_manual_dialog.completed.connect(self._manual_fedex_completed)
+        self._fedex_manual_dialog.show()
+
+    def _manual_fedex_completed(self, pod_result):
+        number = pod_result.number
+        for row in range(self.tracking_table.rowCount()):
+            number_item = self.tracking_table.item(row, 0)
+            carrier_item = self.tracking_table.item(row, 1)
+            if not number_item or not carrier_item:
+                continue
+            if number_item.text() != number or carrier_item.text().casefold() != "fedex":
+                continue
+            item = self.tracking_table.item(row, 5)
+            item.setText("●")
+            item.setData(Qt.UserRole, [pod_result.main_pdf, pod_result.detail_pdf])
+            item.setForeground(QColor("#21A366"))
+            item.setToolTip("点击打开 FedEx 查询主页和详情页")
+        result_path = self._tracking_output_paths.get("result")
+        if result_path:
+            try:
+                update_tracking_result_file(result_path, pod_result)
+            except Exception as exc:
+                self._show_status(f"POD 已保存，但更新结果 Excel 失败：{exc}")
+                return
+        self._show_status(f"FedEx {number} 两份网页 POD 已保存")
 
     def _start_excel(self):
         if not self._authorization_ready():

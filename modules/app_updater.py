@@ -21,11 +21,10 @@ UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "FedEx、DHL、UPS、EI、DSV 可分别设置 POD 抽查比例",
-    "每个抽查比例支持 0% 至 100%",
-    "POD 抽查统一验证 PDF、运单号和送达状态",
-    "移除已失效的 FedEx 签名与签收人字段",
-    "抽查 Excel 增加 POD 类型和抽查比例",
+    "增加 POD 抽查比例",
+    "移除已失效的 FedEx 签名和签收人字段",
+    "FedEx POD 改用真实浏览器（Edge）查询网页",
+    "修复 FedEx API 相关的 bug",
 )
 
 
