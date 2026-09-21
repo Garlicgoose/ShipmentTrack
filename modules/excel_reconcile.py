@@ -229,9 +229,11 @@ def _resolve_date(file: Path) -> tuple[tuple[int, int, int], str]:
 
 
 def _xlsx_files(folder: Path, recursive: bool, excluded: set[Path]) -> list[Path]:
-    iterator = folder.rglob("*.xlsx") if recursive else folder.glob("*.xlsx")
+    iterator = folder.rglob("*") if recursive else folder.iterdir()
     files = []
     for file in iterator:
+        if not file.is_file() or file.suffix.casefold() not in {".xlsx", ".xlsm"}:
+            continue
         if file.name.startswith("~$"):
             continue
         try:
@@ -263,7 +265,17 @@ def _merge_inspect(
     totals: dict[tuple[str, str], float] = defaultdict(float)
     display_totals: dict[tuple[str, str, str], float] = defaultdict(float)
     target_row = 1
+    # Reserve every source column before metadata is appended. A later source
+    # may have an extra real field (e.g. COO in column 43); never truncate it.
     fixed_columns = 0
+    for file in files:
+        probe = load_workbook(file, read_only=True, data_only=False)
+        try:
+            source = probe.active
+            if source.max_row >= 2:
+                fixed_columns = max(fixed_columns, source.max_column)
+        finally:
+            probe.close()
     data_rows = 0
     processed_files = 0
 
@@ -281,16 +293,21 @@ def _merge_inspect(
             continue
         processed_files += 1
         row_map = {}
-        if not fixed_columns:
-            fixed_columns = max_column
+        if target_row == 1:
             row_map[1] = target_row
-            _append_source_row(source, 1, output_sheet, target_row, fixed_columns)
+            _append_source_row(source, 1, output_sheet, target_row, max_column)
             _append_metadata_headers(output_sheet, target_row, fixed_columns + 1)
             target_row += 1
-        elif max_column != fixed_columns:
+        if max_column != fixed_columns:
             issues.append(
-                ("检验表", file.name, f"列数 {max_column} 与首个文件 {fixed_columns} 不一致")
+                ("检验表", file.name, f"列数 {max_column} 与最大列数 {fixed_columns} 不一致；已保留全部原始列")
             )
+        for column in range(1, max_column + 1):
+            if output_sheet.cell(1, column).value in (None, ""):
+                source_header = source.cell(1, column)
+                if source_header.value not in (None, ""):
+                    target_header = output_sheet.cell(1, column, source_header.value)
+                    _copy_style(source_header, target_header)
 
         match = mapper.match(file.name)
         overseas_truck = _is_overseas_truck_filename(file.name)
@@ -325,7 +342,7 @@ def _merge_inspect(
                 source_row,
                 output_sheet,
                 target_row,
-                min(max_column, fixed_columns),
+                max_column,
             )
             if not empty_row:
                 _append_metadata(
@@ -344,7 +361,7 @@ def _merge_inspect(
             target_row += 1
             if not empty_row:
                 data_rows += 1
-        _copy_merged_ranges(source, output_sheet, row_map, fixed_columns)
+        _copy_merged_ranges(source, output_sheet, row_map, max_column)
         workbook.close()
 
     return totals, display_totals, processed_files, data_rows
@@ -385,6 +402,7 @@ def _merge_droplist(
             issues.append(("Droplist", file.name, "文件名和父文件夹均无法识别日期"))
 
         file_rows = 0
+        candidate_sheet_count = 0
         for sheet_name in workbook.sheetnames[1:]:
             normalized_name = sheet_name.strip().casefold()
             if normalized_name == "address" or re.fullmatch(r"sheet\s*\d*", normalized_name):
@@ -392,6 +410,7 @@ def _merge_droplist(
             source = workbook[sheet_name]
             if not _is_droplist_data_sheet(source):
                 continue
+            candidate_sheet_count += 1
             max_column = source.max_column
             _copy_column_layout(source, output_sheet, max_column)
             row_map = {}
@@ -438,6 +457,8 @@ def _merge_droplist(
             issues.append(("Droplist", file.name, "没有有效数据行"))
         else:
             processed_files += 1
+        if not candidate_sheet_count:
+            issues.append(("Droplist", file.name, "未找到包含第3行 S/O、QTY 表头的明细页"))
         workbook.close()
 
     return totals, processed_files, data_rows
@@ -570,6 +591,10 @@ def merge_and_reconcile_excel(
         inspect_enabled=inspect_folder is not None,
         droplist_enabled=droplist_folder is not None,
     )
+    if inspect_folder is not None and droplist_folder is not None:
+        for row in rows:
+            if row.result in {"检验表缺少数据", "Droplist 缺少数据"}:
+                issues.append(("核对", f"{row.date} / {row.target_type}", row.result + "；请检查源文件是否齐全或映射是否正确"))
     if inspect_workbook is not None:
         type_sheet = inspect_workbook.create_sheet("类型箱数")
         type_sheet.append(("日期", "类型", "箱数", "归总类别"))

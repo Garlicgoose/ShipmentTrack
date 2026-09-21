@@ -155,6 +155,7 @@ class ExcelReconcileTests(unittest.TestCase):
         )
         self.assertTrue(any(issue[0] == "检验表" for issue in result.issues))
         self.assertTrue(any(row.target_type == "未识别" for row in result.rows))
+        self.assertTrue(any(issue[0] == "核对" for issue in result.issues))
 
         # 第二次运行时不得把第一次输出再次当成输入。
         second = merge_and_reconcile_excel(
@@ -256,6 +257,25 @@ class ExcelReconcileTests(unittest.TestCase):
     def test_merge_requires_at_least_one_input_folder(self):
         with self.assertRaisesRegex(ValueError, "至少选择一个"):
             merge_and_reconcile_excel(None, None, self.root / "output", self.rules)
+
+    def test_later_inspection_file_extra_column_is_preserved_before_metadata(self):
+        create_inspect(self.inspect / "9.17 国外第一车.xlsx", [2])
+        wider = self.inspect / "9.17 国外第三车.xlsx"
+        create_inspect(wider, [3])
+        source = load_workbook(wider)
+        source.active.cell(1, 8, "COO")
+        source.active.cell(2, 8, "CN")
+        source.active.cell(2, 8).fill = PatternFill("solid", fgColor="FFF2CC")
+        source.save(wider)
+        result = merge_and_reconcile_excel(
+            self.inspect, None, self.root / "output", self.rules
+        )
+        merged = load_workbook(result.inspect_output_file)["合并检验表"]
+        self.assertEqual("COO", merged.cell(1, 8).value)
+        self.assertEqual("类型", merged.cell(1, 9).value)
+        self.assertEqual("CN", merged.cell(3, 8).value)
+        self.assertEqual("00FFF2CC", merged.cell(3, 8).fill.fgColor.rgb)
+        self.assertTrue(any("已保留全部原始列" in issue[2] for issue in result.issues))
 
 
 if __name__ == "__main__":
