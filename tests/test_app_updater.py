@@ -28,7 +28,7 @@ class _Response:
 
 
 class AppUpdaterTests(unittest.TestCase):
-    def manifest(self, content=b"MZ" + b"x" * 2048, version="1.2"):
+    def manifest(self, content=b"MZ" + b"x" * 2048, version="1.3"):
         return {
             "version": version,
             "exe_url": "https://github.com/Garlicgoose/ShipmentTrack/raw/main/release/Shipment%20Track.exe",
@@ -38,11 +38,12 @@ class AppUpdaterTests(unittest.TestCase):
 
     def test_version_comparison_is_numeric(self):
         self.assertTrue(app_updater.is_newer_version("1.10", "1.9"))
+        self.assertTrue(app_updater.is_newer_version("1.3", "1.2"))
         self.assertFalse(app_updater.is_newer_version("1.1.0", "1.1"))
 
     def test_manifest_requires_https_github_and_sha256(self):
         valid = app_updater.validate_manifest(self.manifest())
-        self.assertEqual("1.2", valid["version"])
+        self.assertEqual("1.3", valid["version"])
         invalid = self.manifest()
         invalid["exe_url"] = "http://example.com/app.exe"
         with self.assertRaisesRegex(app_updater.UpdateError, "不受信任"):
@@ -88,22 +89,18 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v12_workflow(self):
+    def test_in_app_changelog_reflects_v13(self):
         self.assertEqual(
             (
-                "五家承运商的 POD 抽查比例可分别设置为 0%–100%",
-                "FedEx 批量查询只取 API 状态",
+                "版本号更新为 1.3",
                 "FedEx 半自动由用户打开网址，面板独立置顶",
-                "网页承运商第一次启动时留 10 秒公司登录时间",
-                "映射规则增加匹配方式、预览、推荐规则和说明文档",
-                "检验表按最大原始列数保留全部字段",
             ),
             app_updater.CURRENT_CHANGELOG,
         )
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.2")[1].split("## 1.1")[0]
+        section = changelog.split("## 1.3")[1].split("## 1.2")[0]
         for note in app_updater.CURRENT_CHANGELOG:
             self.assertIn(note, section)
 

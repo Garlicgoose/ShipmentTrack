@@ -1,4 +1,4 @@
-# ShipmentTrack v1.2
+# ShipmentTrack v1.3
 
 快递批量查询工具（DHL / DSV / EI / UPS / FedEx），Garlicgoose 制作。
 
@@ -72,7 +72,7 @@ Shipment Track\
 ```
 
 程序使用电脑已安装的 Edge 或 Google Chrome，不需要另行下载 Chromium。
-头像弹窗中可以查看 v1.2 更新日志或手动检查 GitHub 新版本。
+头像弹窗中可以查看 v1.3 更新日志或手动检查 GitHub 新版本。
 
 ## 授权说明（给使用者）
 
