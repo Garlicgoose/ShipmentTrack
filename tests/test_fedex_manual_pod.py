@@ -8,36 +8,47 @@ from modules import fedex_manual_pod as manual
 
 
 class ManualFedExPodTests(unittest.TestCase):
-    def test_prepare_arms_input_after_user_click_without_submitting(self):
+    def test_prepare_never_navigates_before_or_between_jobs(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
              mock.patch.object(manual, "RealBrowserController") as controller_type:
-            page = mock.Mock(url="https://www.fedex.com/en-cn/tracking.html")
-            controller_type.return_value.start.return_value = (mock.Mock(), page)
+            page = mock.Mock(url="about:blank")
+            controller_type.return_value.start.return_value = (mock.Mock(pages=[page]), page)
             session = manual.ManualFedExPodSession(
                 mock.Mock(), "msedge.exe", "edge", temp_dir
             )
             self.assertEqual("541964339019", session.prepare("5419 64339019"))
-            script, number = page.evaluate.call_args.args
+            self.assertFalse(session.fill_after_user_click("541964339019"))
+            session.prepare("541964339020")
+            page.click.assert_not_called()
+            page.goto.assert_not_called()
+            page.evaluate.assert_not_called()
+
+    def test_user_chosen_fedex_locale_is_preserved_when_arming_input(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController") as controller_type:
+            page = mock.Mock(url="https://www.fedex.com/en-hk/tracking.html")
+            controller_type.return_value.start.return_value = (mock.Mock(pages=[page]), page)
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            session.prepare("541964339019")
+            page.evaluate.side_effect = [None, ""]
+            self.assertFalse(session.fill_after_user_click("541964339019"))
+            script, number = page.evaluate.call_args_list[0].args
             self.assertEqual("541964339019", number)
             self.assertIn("pointerdown", script)
             self.assertIn("__shipmentTrackManualPending", script)
-            self.assertNotIn("setter.call", script)
             self.assertNotIn("requestSubmit", script)
-            page.click.assert_not_called()
-            page.goto.assert_called_once_with(
-                manual.TRACKING_PAGE, wait_until="domcontentloaded", timeout=45_000
-            )
+            page.goto.assert_not_called()
 
     def test_types_real_keys_only_after_user_click(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
              mock.patch.object(manual, "RealBrowserController"):
             session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
-            page = mock.Mock()
+            page = mock.Mock(url="https://www.fedex.com/en-hk/tracking.html")
             session.page = page
-            page.evaluate.return_value = ""
+            session.context = mock.Mock(pages=[page])
+            page.evaluate.side_effect = [None, "", "541964339019"]
             self.assertFalse(session.fill_after_user_click("541964339019"))
             page.keyboard.type.assert_not_called()
-            page.evaluate.return_value = "541964339019"
             self.assertTrue(session.fill_after_user_click("541964339019"))
             page.keyboard.press.assert_called_once_with("Control+A")
             page.keyboard.type.assert_called_once_with("541964339019", delay=60)
@@ -47,6 +58,7 @@ class ManualFedExPodTests(unittest.TestCase):
              mock.patch.object(manual, "RealBrowserController"):
             session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
             session.page = mock.Mock(url="https://www.fedex.com/fedextrack/")
+            session.context = mock.Mock(pages=[session.page])
             before = ("541964339019\nDelivered", "https://www.fedex.com/fedextrack/")
             with mock.patch.object(manual, "_body_text", return_value="Travel History 541964339020" + "x" * 100):
                 self.assertFalse(session.detail_ready("541964339019", before))
@@ -59,10 +71,21 @@ class ManualFedExPodTests(unittest.TestCase):
              mock.patch.object(manual, "_print_current_page") as printer:
             session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
             session.page = mock.Mock(url="https://www.fedex.com/en-cn/tracking.html")
+            session.context = mock.Mock(pages=[session.page])
             with mock.patch.object(manual, "_body_text", return_value="captcha 541964339019"):
                 with self.assertRaisesRegex(RuntimeError, "验证码"):
                     session.save_main("541964339019")
             printer.assert_not_called()
+
+    def test_user_navigation_during_listener_attach_is_transient(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController"):
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            page = mock.Mock(url="https://www.fedex.com/en-hk/tracking.html")
+            session.context = mock.Mock(pages=[page])
+            page.evaluate.side_effect = RuntimeError("Execution context was destroyed")
+            self.assertFalse(session.fill_after_user_click("541964339019"))
+            page.goto.assert_not_called()
 
     def test_manual_pod_paths_update_existing_tracking_excel(self):
         with tempfile.TemporaryDirectory() as temp_dir:

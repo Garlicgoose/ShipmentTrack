@@ -910,11 +910,12 @@ class MainWindow(QMainWindow):
             output_dir,
             self.settings.get("browser_type", "edge"),
             self.settings.get("browser_path", ""),
-            self,
+            None,
         )
         self._fedex_manual_dialog.completed.connect(self._manual_fedex_completed)
         self._fedex_manual_dialog.queue_finished.connect(self._refresh_manual_pod_audit)
         self._fedex_manual_dialog.show()
+        self._fedex_manual_dialog.raise_()
 
     def _manual_fedex_completed(self, pod_result):
         number = pod_result.number
@@ -1091,3 +1092,12 @@ class MainWindow(QMainWindow):
 
     def _show_status(self, message):
         self.statusBar().showMessage(str(message), 4000)
+
+    def closeEvent(self, event):
+        dialog = self._fedex_manual_dialog
+        if dialog is not None and dialog.isVisible():
+            dialog.close()
+            if dialog.isVisible():
+                event.ignore()
+                return
+        super().closeEvent(event)

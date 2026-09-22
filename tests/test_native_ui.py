@@ -233,6 +233,19 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual("●", pod_cell.text())
         self.assertEqual([str(main_pdf), str(detail_pdf)], pod_cell.data(Qt.UserRole))
 
+    def test_manual_pod_panel_stays_independent_when_main_is_minimized(self):
+        self.window._fedex_manual_jobs = ["541964339019"]
+        self.window.tracking_output.set_value(self.temp_dir.name)
+        self.window.show()
+        self.window._open_fedex_manual()
+        panel = self.window._fedex_manual_dialog
+        self.assertIsNone(panel.parent())
+        self.assertTrue(panel.windowFlags() & Qt.WindowStaysOnTopHint)
+        self.window.showMinimized()
+        self.app.processEvents()
+        self.assertTrue(panel.isVisible())
+        panel.close()
+
     def test_settings_tabs_have_no_overlapping_controls(self):
         """回归：三个设置分区挤在一页时表格和按钮会互相压住，拆页后不得再重叠。"""
         page = self.window.settings_page

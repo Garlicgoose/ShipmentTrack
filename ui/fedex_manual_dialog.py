@@ -6,7 +6,7 @@ from pathlib import Path
 import threading
 import time
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout,
 )
@@ -44,7 +44,7 @@ class ManualPodWorker(QThread):
 
     def _process(self, session, number):
         session.prepare(number)
-        self.message.emit("已打开 FedEx。请点击 Tracking ID 输入框；单号会填入，请自行点击 TRACK。")
+        self.message.emit("浏览器已打开。请自行进入 FedEx 查询网站，再点击 Tracking ID 输入框；单号会填入，请自行点击 TRACK。")
         stage = "main"
         snapshot = None
         main_pdf = ""
@@ -112,6 +112,10 @@ class FedExManualDialog(QDialog):
 
     def __init__(self, numbers, output_dir, browser_type="edge", browser_path="", parent=None):
         super().__init__(parent)
+        # A child dialog follows its main window when that window is minimized.
+        # Keep this a separate, non-modal top-level window above the browser.
+        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowModality(Qt.NonModal)
         self.setWindowTitle("FedEx POD · 半自动")
         self.resize(500, 290)
         self.setMinimumWidth(430)
@@ -127,9 +131,9 @@ class FedExManualDialog(QDialog):
         self.current_label = QLabel(f"待处理 {len(self.numbers)} 票 FedEx")
         self.current_label.setObjectName("sectionTitle")
         layout.addWidget(self.current_label)
-        layout.addWidget(QLabel("点击网页输入框后自动填号；您点击 TRACK 和详情，程序只保存两页 PDF。"))
+        layout.addWidget(QLabel("自行打开 FedEx 网站；点击输入框后自动填号。您点击 TRACK 和详情。"))
         controls = QHBoxLayout()
-        self.start_button = QPushButton("打开 FedEx 并开始")
+        self.start_button = QPushButton("打开浏览器并开始")
         self.start_button.setObjectName("primaryButton")
         self.start_button.clicked.connect(self.start)
         self.retry_button = QPushButton("重试当前")

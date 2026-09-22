@@ -38,8 +38,9 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -DistRoot E:\ShipmentTrackBui
   程序把浏览器 Accept-Language 与 navigator.language 锁成 en-US，页面若仍为中文
   再兜底点击站点自带的 English 选项，保证状态文案与英文选择器一致。
 - FedEx 网页 POD：批量任务只查 API 状态，不自动下载。完成后在跟踪页打开
-  「FedEx 半自动 POD」；程序打开官网，用户点击 Tracking ID 输入框后自动填号，
-  用户自行点击 TRACK 和详情，程序识别页面并保存两份 PDF。
+  「FedEx 半自动 POD」；程序只打开空白浏览器，由用户自行进入 FedEx 网站。
+  点击 Tracking ID 输入框后程序逐字填号；用户自行点击 TRACK 和详情，
+  程序识别页面并保存两份 PDF。置顶面板不随主窗口最小化。
 - 映射设置提供包含/完全/正则匹配方式、真实文件名预览和推荐规则补充；
   使用说明见 `docs/FILENAME_MAPPING_GUIDE.md`。
 - 更新：启动后从 GitHub 静默检查新版本；头像弹窗可查看更新日志或手动检查。

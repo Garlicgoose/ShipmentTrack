@@ -71,6 +71,8 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("Microsoft Edge 或 Google Chrome", readme)
         self.assertIn("不需要另行下载 Chromium", guide)
         self.assertIn("ShipmentTrack v1.2", readme)
+        self.assertIn("程序只打开空白浏览器", readme)
+        self.assertIn("置顶面板不随主窗口最小化", readme)
         self.assertIn("真实 Microsoft Edge", readme)
         self.assertIn("分别设置 0%–100%", readme)
         self.assertIn("合并检验表.xlsx", readme)

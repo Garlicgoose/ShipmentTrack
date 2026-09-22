@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+from urllib.parse import urlparse
 from openpyxl import load_workbook
 
 from modules.fedex_web_pod import (
     DETAIL_CONTENT_RE,
-    TRACKING_PAGE,
     _body_text,
     _main_page_ready,
     _print_current_page,
@@ -74,39 +74,80 @@ class ManualFedExPodSession:
         )
         self.context = None
         self.page = None
+        self._armed_page = None
+        self._armed_url = ""
 
     def start(self):
         self.context, self.page = self.controller.start()
-        self.page.goto(TRACKING_PAGE, wait_until="domcontentloaded", timeout=45_000)
+
+    def _find_fedex_page(self):
+        """Follow the page the user opened; never navigate on their behalf."""
+        if self.context is None:
+            return None
+        try:
+            pages = list(self.context.pages)
+        except Exception:
+            return None
+        for page in reversed(pages):
+            try:
+                host = (urlparse(str(page.url)).hostname or "").casefold()
+                if host == "fedex.com" or host.endswith(".fedex.com"):
+                    self.page = page
+                    return page
+            except Exception:
+                continue
+        return None
 
     def prepare(self, number):
         number = normalize_tracking_number(number)
-        if self.page is None:
+        if self.context is None:
             self.start()
-        else:
-            self.page.goto(TRACKING_PAGE, wait_until="domcontentloaded", timeout=45_000)
-        self.page.evaluate(ARM_INPUT_SCRIPT, number)
+        self._armed_page = None
+        self._armed_url = ""
         return number
 
     def main_ready(self, number):
-        text = _body_text(self.page)
+        page = self._find_fedex_page()
+        if page is None:
+            return False
+        text = _body_text(page)
         if BLOCK_PAGE_RE.search(text):
             raise RuntimeError("FedEx 页面出现限流、验证码或服务错误；请人工处理后重试")
-        return _main_page_ready(self.page, number)
+        try:
+            return _main_page_ready(page, number)
+        except Exception:
+            # User-initiated navigation can invalidate the current JS context.
+            return False
 
     def fill_after_user_click(self, number):
         """Type only after the user actually clicks FedEx's tracking field."""
-        pending = self.page.evaluate(
-            """() => {
-                const number = window.__shipmentTrackManualPending;
-                window.__shipmentTrackManualPending = null;
-                return number || '';
-            }"""
-        )
+        page = self._find_fedex_page()
+        if page is None:
+            return False
+        try:
+            url = str(page.url)
+            if page is not self._armed_page or url != self._armed_url:
+                page.evaluate(ARM_INPUT_SCRIPT, number)
+                self._armed_page, self._armed_url = page, url
+            pending = page.evaluate(
+                """() => {
+                    const number = window.__shipmentTrackManualPending;
+                    window.__shipmentTrackManualPending = null;
+                    return number || '';
+                }"""
+            )
+        except Exception:
+            self._armed_page = None
+            return False
         if pending != number:
             return False
-        self.page.keyboard.press("Control+A")
-        self.page.keyboard.type(number, delay=60)
+        try:
+            page.keyboard.press("Control+A")
+            page.keyboard.type(number, delay=60)
+        except Exception:
+            # A user may submit/navigate while key events are in flight.
+            self._armed_page = None
+            return False
         return True
 
     def save_main(self, number):
@@ -118,7 +159,10 @@ class ManualFedExPodSession:
         return str(main_pdf), snapshot
 
     def detail_ready(self, number, snapshot):
-        text = _body_text(self.page)
+        page = self._find_fedex_page()
+        if page is None:
+            return False
+        text = _body_text(page)
         if BLOCK_PAGE_RE.search(text):
             raise RuntimeError("FedEx 详情页出现限流、验证码或服务错误")
         before_text, before_url = snapshot
@@ -127,7 +171,7 @@ class ManualFedExPodSession:
             number in compact
             and text != before_text
             and bool(DETAIL_CONTENT_RE.search(text))
-            and (str(self.page.url) != before_url or abs(len(text) - len(before_text)) >= 80)
+            and (str(page.url) != before_url or abs(len(text) - len(before_text)) >= 80)
         )
 
     def save_detail(self, number, snapshot):
@@ -142,6 +186,7 @@ class ManualFedExPodSession:
     def close(self):
         self.controller.close()
         self.context = self.page = None
+        self._armed_page = None
 
 
 def update_tracking_result_file(result_file, pod_result: ManualPodResult) -> bool:

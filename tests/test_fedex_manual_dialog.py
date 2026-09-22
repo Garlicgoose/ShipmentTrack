@@ -5,6 +5,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
 
 from ui.fedex_manual_dialog import FedExManualDialog, ManualPodWorker
 
@@ -17,9 +18,11 @@ class ManualDialogTests(unittest.TestCase):
     def test_dialog_exposes_human_search_controls(self):
         with tempfile.TemporaryDirectory() as folder:
             dialog = FedExManualDialog(["541964339019"], folder)
-            self.assertIn("点击网页输入框", dialog.findChildren(type(dialog.current_label))[1].text())
-            self.assertEqual("打开 FedEx 并开始", dialog.start_button.text())
+            self.assertIn("自行打开 FedEx 网站", dialog.findChildren(type(dialog.current_label))[1].text())
+            self.assertEqual("打开浏览器并开始", dialog.start_button.text())
             self.assertEqual("跳过当前", dialog.skip_button.text())
+            self.assertTrue(dialog.windowFlags() & Qt.WindowStaysOnTopHint)
+            self.assertTrue(dialog.windowFlags() & Qt.Window)
             dialog.close()
 
     def test_worker_does_not_advance_without_human_query(self):
