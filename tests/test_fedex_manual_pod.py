@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,9 +6,65 @@ from unittest import mock
 from openpyxl import Workbook, load_workbook
 
 from modules import fedex_manual_pod as manual
+from units import detect_browser_path
 
 
 class ManualFedExPodTests(unittest.TestCase):
+    @unittest.skipUnless(
+        os.environ.get("SHIPMENTTRACK_LIVE_EDGE_TEST") == "1",
+        "Run manually with a locally installed Edge browser",
+    )
+    def test_real_edge_user_navigation_click_then_two_page_print(self):
+        from playwright.sync_api import sync_playwright
+
+        edge = detect_browser_path("edge")
+        if not edge:
+            self.skipTest("Microsoft Edge is unavailable")
+        html = """<html><body>
+            <input id="tracking_number_1" placeholder="Tracking ID">
+            <button id="track" onclick="
+              const n=document.querySelector('input').value;
+              document.querySelector('#result').innerHTML=
+                n + '<button id=details>View more details</button>';
+              document.querySelector('#details').onclick=()=>{
+                document.querySelector('#result').innerHTML +=
+                  '<section>Travel History ' + n + ' ' + 'Delivered '.repeat(20) + '</section>';
+              };
+            ">TRACK</button><div id="result"></div>
+        </body></html>"""
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "get_data_path", return_value=Path(temp_dir)):
+            with sync_playwright() as playwright:
+                session = manual.ManualFedExPodSession(
+                    playwright, edge, "edge", Path(temp_dir) / "pdf"
+                )
+                try:
+                    session.prepare("541964339019")
+                    page = session.page
+                    self.assertEqual("about:blank", page.url)
+                    self.assertFalse(session.fill_after_user_click("541964339019"))
+                    session.context.route(
+                        "https://www.fedex.com/en-hk/tracking.html",
+                        lambda route: route.fulfill(status=200, content_type="text/html", body=html),
+                    )
+                    # This navigation and both clicks represent the user's actions.
+                    page.goto("https://www.fedex.com/en-hk/tracking.html")
+                    self.assertFalse(session.fill_after_user_click("541964339019"))
+                    page.click("#tracking_number_1")
+                    page.wait_for_timeout(100)
+                    self.assertTrue(session.fill_after_user_click("541964339019"))
+                    self.assertEqual("541964339019", page.locator("input").input_value())
+                    self.assertFalse(session.main_ready("541964339019"))
+                    page.click("#track")
+                    self.assertTrue(session.main_ready("541964339019"))
+                    main_pdf, snapshot = session.save_main("541964339019")
+                    page.click("#details")
+                    self.assertTrue(session.detail_ready("541964339019", snapshot))
+                    detail_pdf = session.save_detail("541964339019", snapshot)
+                    self.assertTrue(manual.is_valid_pdf(Path(main_pdf)))
+                    self.assertTrue(manual.is_valid_pdf(Path(detail_pdf)))
+                finally:
+                    session.close()
     def test_prepare_never_navigates_before_or_between_jobs(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
              mock.patch.object(manual, "RealBrowserController") as controller_type:
