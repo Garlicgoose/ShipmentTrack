@@ -1,13 +1,9 @@
 {
-  "version": "1.2",
-  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.2-manual-20260922-r3/release/Shipment%20Track.exe",
-  "sha256": "a5cbb0a93919f592920e392787db76937ba7d11146ee93f3c6498379c4aaba0b",
+  "version": "1.3",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.3-20260922/release/Shipment%20Track.exe",
+  "sha256": "b1bb7620e8001719ec9b31cfa2883b0cf21993bc440fca26c3896ced85e9c62f",
   "notes": [
-    "FedEx 半自动仅打开空白浏览器，网址由用户自行进入",
-    "点击跟踪输入框后才填号，用户点击 TRACK 与详情后自动保存两页",
-    "POD 面板独立置顶，不随主窗口最小化",
-    "网页承运商首次启动预留 10 秒登录，并在切换公司后关闭浏览器",
-    "设置分为四页，映射规则可预览并补充推荐规则",
-    "检验表保留较宽源文件的全部原始列，异常页标明缺失和空表"
+    "版本号更新为 1.3",
+    "FedEx 半自动由用户打开网址，面板独立置顶"
   ]
 }
