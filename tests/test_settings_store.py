@@ -86,8 +86,26 @@ class SettingsStoreTests(unittest.TestCase):
         match = mapper.match("9.10 SPECIAL mpo.xlsx")
         self.assertTrue(match.matched)
         self.assertEqual("光联", match.target_type)
-        self.assertEqual("special", match.display_type)
+        self.assertEqual("", match.display_type)
         self.assertEqual("special", match.pattern)
+
+    def test_mapping_ignores_date_prefix_and_common_separators(self):
+        mapper = FilenameMapper([
+            FilenameMappingRule(
+                "MPO国外FEDEX自提", "MPO", display_type="FedEx自提"
+            )
+        ])
+        match = mapper.match("9.22MPO国外FED-EX自提—空运出货资料.xlsx")
+        self.assertTrue(match.matched)
+        self.assertEqual("FedEx自提", match.display_type)
+        self.assertEqual("MPO", match.target_type)
+
+    def test_mapping_allows_empty_detailed_type_but_keeps_category(self):
+        rules = [FilenameMappingRule("FEDEX自提", "MPO", display_type="")]
+        self.store.save_mappings(rules)
+        loaded = self.store.load_mappings()
+        self.assertEqual("", loaded[0].display_type)
+        self.assertEqual("MPO", loaded[0].target_type)
 
     def test_specific_mapping_beats_generic_mpo_fallback(self):
         mapper = FilenameMapper([

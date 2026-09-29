@@ -19,6 +19,7 @@ from modules.settings_store import FilenameMapper, FilenameMappingRule
 
 
 ProgressCallback = Optional[Callable[[int], None]]
+DEFAULT_RECONCILE_YEAR = 2026
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,7 @@ class ExcelReconcileResult:
 
 
 def extract_date_from_name(name: str) -> tuple[tuple[int, int, int], str]:
-    """从文件名中提取 YYYY.M.D 或 M.D，返回排序键与显示值。"""
+    """Extract a date and always display it as YYYY/M/D."""
     filename = Path(str(name or "")).name
     stem = re.sub(r"\.(?:xlsx|xlsm|xls)$", "", filename, flags=re.IGNORECASE)
     match = re.search(
@@ -53,12 +54,12 @@ def extract_date_from_name(name: str) -> tuple[tuple[int, int, int], str]:
     )
     if not match:
         return (0, 0, 0), ""
-    year = int(match.group(1) or 0)
+    year = int(match.group(1) or DEFAULT_RECONCILE_YEAR)
     month = int(match.group(2))
     day = int(match.group(3))
     if not (1 <= month <= 12 and 1 <= day <= 31):
         return (0, 0, 0), ""
-    label = f"{year}.{month}.{day}" if year else f"{month}.{day}"
+    label = f"{year}/{month}/{day}"
     return (year, month, day), label
 
 
@@ -129,7 +130,15 @@ def _is_droplist_end_row(sheet, row: int, max_column: int) -> bool:
         folded = first.casefold()
         if "by fed-ex" in folded or "total" in folded:
             return True
-    return _is_empty_row(sheet, row, max_column)
+    first_block_empty = all(
+        _safe_value(sheet, row, column) in (None, "")
+        for column in range(1, min(4, max_column) + 1)
+    )
+    second_block_empty = max_column >= 11 and all(
+        _safe_value(sheet, row, column) in (None, "")
+        for column in range(9, 12)
+    )
+    return first_block_empty or second_block_empty
 
 
 def _is_droplist_data_sheet(sheet) -> bool:
@@ -222,11 +231,49 @@ def _append_metadata(
         sheet.cell(row=row, column=start_column + offset, value=value)
 
 
-def _resolve_date(file: Path) -> tuple[tuple[int, int, int], str]:
+def _resolve_date(
+    file: Path, root: Optional[Path] = None
+) -> tuple[tuple[int, int, int], str]:
     key, label = extract_date_from_name(file.stem)
     if label:
         return key, label
-    return extract_date_from_name(file.parent.name)
+    root = Path(root).resolve() if root else None
+    for parent in file.parents:
+        key, label = extract_date_from_name(parent.name)
+        if label:
+            return key, label
+        if root is not None:
+            try:
+                if parent.resolve() == root:
+                    break
+            except OSError:
+                pass
+    return (0, 0, 0), ""
+
+
+def _infer_droplist_category(file: Path, folder: Path, mapped_type: str) -> str:
+    try:
+        relative = str(file.relative_to(folder))
+    except ValueError:
+        relative = str(file)
+    folded = relative.casefold()
+    if "光联" in relative:
+        return "光联"
+    if "mpo" in folded:
+        return "MPO"
+    if mapped_type in {"光联", "MPO"}:
+        return mapped_type
+    # Business convention: Droplist without an MPO marker belongs to 光联.
+    return "光联"
+
+
+def _droplist_source_label(file: Path, folder: Path, date: str, category: str) -> str:
+    try:
+        relative = str(file.relative_to(folder))
+    except ValueError:
+        relative = file.name
+    canonical_date = date.replace("/", "-") if date else "日期未知"
+    return f"{canonical_date}-{category}｜{relative}"
 
 
 def _xlsx_files(folder: Path, recursive: bool, excluded: set[Path]) -> list[Path]:
@@ -259,7 +306,7 @@ def _merge_inspect(
     int,
 ]:
     files = _xlsx_files(folder, recursive=False, excluded=excluded)
-    files.sort(key=lambda file: (_resolve_date(file)[0], file.name.casefold()))
+    files.sort(key=lambda file: (_resolve_date(file, folder)[0], file.name.casefold()))
     if not files:
         raise FileNotFoundError("检验表文件夹中没有可处理的 .xlsx 文件")
 
@@ -327,7 +374,7 @@ def _merge_inspect(
         if overseas_truck and not match.matched:
             mapping_note = "默认规则：国外第…车归类为光联"
 
-        _, date_label = _resolve_date(file)
+        _, date_label = _resolve_date(file, folder)
         if not match.matched and not overseas_truck:
             issues.append(("检验表", file.name, match.note))
         if not date_label:
@@ -380,7 +427,7 @@ def _merge_droplist(
         file for file in candidates
         if file.stem.casefold().startswith("drop shipment list")
     ]
-    files.sort(key=lambda file: (_resolve_date(file)[0], file.name.casefold()))
+    files.sort(key=lambda file: (_resolve_date(file, folder)[0], file.name.casefold()))
     if not files:
         raise FileNotFoundError("Droplist 文件夹中没有有效的 Drop shipment list 文件")
 
@@ -392,16 +439,17 @@ def _merge_droplist(
 
     for file in files:
         workbook = load_workbook(file, data_only=False)
-        source_label = str(file.relative_to(folder))
+        original_relative = str(file.relative_to(folder))
         match = mapper.match(file.name)
-        comparison_type = (
-            match.target_type if match.target_type in {"光联", "MPO"} else "未识别"
+        comparison_type = _infer_droplist_category(
+            file, folder, match.target_type
         )
-        _, date_label = _resolve_date(file)
-        if not match.matched:
-            issues.append(("Droplist", source_label, match.note))
+        _, date_label = _resolve_date(file, folder)
+        source_label = _droplist_source_label(
+            file, folder, date_label, comparison_type
+        )
         if not date_label:
-            issues.append(("Droplist", source_label, "文件名和父文件夹均无法识别日期"))
+            issues.append(("Droplist", original_relative, "文件名和祖先文件夹均无法识别日期"))
 
         file_rows = 0
         candidate_sheet_count = 0
@@ -467,7 +515,9 @@ def _merge_droplist(
 
 
 def _date_sort_key(label: str):
-    return extract_date_from_name(label)[0]
+    # Display labels use slashes (2026/9/22); Path would otherwise interpret
+    # them as directories and keep only the final day component.
+    return extract_date_from_name(str(label or "").replace("/", "."))[0]
 
 
 def _build_reconcile_rows(

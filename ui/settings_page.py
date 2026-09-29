@@ -517,7 +517,7 @@ class SettingsPage(QWidget):
         rules = [rule.normalized() for rule in raw_rules]
         rules = [
             rule for rule in rules
-            if rule.pattern and rule.display_type and rule.target_type
+            if rule.pattern and rule.target_type
         ]
         if not rules:
             QMessageBox.warning(self, "ShipmentTrack", "至少保留一条有效的文件名映射。")

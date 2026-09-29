@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtTest import QTest
 
-from modules.settings_store import SettingsStore
+from modules.settings_store import FilenameMappingRule, SettingsStore
 from ui.main_window import APP_FEATURES, APP_VERSION, MainWindow, PROFILE_AVATAR, PROFILE_NAME
 
 
@@ -94,7 +94,7 @@ class NativeUiTests(unittest.TestCase):
                 for carrier, field in self.window.settings_page.audit_rate_inputs.items()
             },
         )
-        self.assertEqual("1.4", APP_VERSION)
+        self.assertEqual("1.5", APP_VERSION)
         popup_buttons = [
             button.text() for button in self.window.profile_popup.findChildren(QPushButton)
         ]
@@ -383,6 +383,17 @@ class NativeUiTests(unittest.TestCase):
         self.assertTrue(any(
             rule.pattern == "国外Expeditors自提" for rule in page.mapping_rules()
         ))
+
+    def test_mapping_detailed_type_may_be_blank_but_category_is_required(self):
+        page = self.window.settings_page
+        page.add_mapping(FilenameMappingRule("9.22MPO国外FEDEX自提", "MPO", display_type=""))
+        page.save()
+        saved = next(
+            rule for rule in self.store.load_mappings()
+            if rule.pattern == "9.22MPO国外FEDEX自提"
+        )
+        self.assertEqual("", saved.display_type)
+        self.assertEqual("MPO", saved.target_type)
 
     def test_mapping_guide_has_in_app_fallback_for_exe_only_updates(self):
         page = self.window.settings_page

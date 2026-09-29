@@ -8,6 +8,7 @@ import ctypes
 from pathlib import Path
 import re
 import sys
+import unicodedata
 from typing import Iterable, Optional
 
 from units import get_base_path, get_data_path, read_json, write_json
@@ -60,7 +61,9 @@ class FilenameMappingRule:
             target_type=str(self.target_type or "").strip(),
             match_type=match_type,
             note=str(self.note or "").strip(),
-            display_type=str(self.display_type or self.pattern or "").strip(),
+            # Detailed inspection type is optional. The comparison category is
+            # the required field and remains independent from this display value.
+            display_type=str(self.display_type or "").strip(),
         )
 
 
@@ -188,23 +191,29 @@ class FilenameMapper:
 
     def match(self, filename: str) -> MappingMatch:
         stem = Path(str(filename or "")).stem.strip()
-        folded = stem.casefold()
+        normalized_stem = _strip_leading_date(stem)
+        folded = _canonical_mapping_text(normalized_stem)
         candidates = []
         for index, rule in enumerate(self.rules):
             if not rule.pattern or not rule.target_type:
                 continue
             if rule.match_type == "exact":
-                matched = folded == rule.pattern.casefold()
+                matched = folded == _canonical_mapping_text(
+                    _strip_leading_date(rule.pattern)
+                )
             elif rule.match_type == "regex":
                 try:
-                    matched = re.search(rule.pattern, stem, re.IGNORECASE) is not None
+                    matched = re.search(
+                        rule.pattern, normalized_stem, re.IGNORECASE
+                    ) is not None
                 except re.error:
                     matched = False
             else:
-                matched = rule.pattern.casefold() in folded
+                pattern = _canonical_mapping_text(_strip_leading_date(rule.pattern))
+                matched = bool(pattern) and pattern in folded
             if matched:
                 rank = {"contains": 1, "regex": 2, "exact": 3}[rule.match_type]
-                candidates.append((rank, len(rule.pattern), -index, rule))
+                candidates.append((rank, len(_canonical_mapping_text(rule.pattern)), -index, rule))
         if candidates:
             rule = max(candidates, key=lambda item: item[:3])[3]
             return MappingMatch(
@@ -221,6 +230,25 @@ class FilenameMapper:
             pattern="",
             matched=False,
         )
+
+
+_DATE_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:20\d{2})\s*[./_-]\s*)?"
+    r"\d{1,2}\s*[./_-]\s*\d{1,2}\s*",
+    re.IGNORECASE,
+)
+
+
+def _strip_leading_date(value: str) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).strip()
+    return _DATE_PREFIX_RE.sub("", text, count=1).strip(" ._-—–")
+
+
+def _canonical_mapping_text(value: str) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    # Rules should survive spaces, hyphens (FED-EX vs FEDEX), underscores,
+    # full-width punctuation, and route-description separators.
+    return "".join(character for character in text if character.isalnum())
 
 
 class SettingsStore:
@@ -320,9 +348,7 @@ class SettingsStore:
                 match_type=item.get("match_type", "contains"),
                 note=item.get("note", ""),
                 display_type=(
-                    item.get("display_type")
-                    or item.get("source_type")
-                    or item.get("pattern", "")
+                    item.get("display_type", item.get("source_type", ""))
                 ),
             ).normalized()
             if rule.pattern and rule.target_type:

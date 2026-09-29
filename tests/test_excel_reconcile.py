@@ -5,7 +5,11 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 
-from modules.excel_reconcile import extract_date_from_name, merge_and_reconcile_excel
+from modules.excel_reconcile import (
+    _date_sort_key,
+    extract_date_from_name,
+    merge_and_reconcile_excel,
+)
 from modules.settings_store import FilenameMappingRule
 
 
@@ -54,6 +58,22 @@ def create_droplist_with_ignored_sheet1(path: Path, quantities, ignored_quantiti
     workbook.save(path)
 
 
+def create_droplist_with_business_end_gap(path: Path):
+    workbook = Workbook()
+    workbook.active.title = "Cover"
+    data = workbook.create_sheet("Data")
+    headers = ["S/O", "Line", "P/N", "Company", "Country", "QTY", "Amount", "Currency",
+               "Gross Weight", "Box", "By", "AWB", "Delivery", "Shipment", "Freight", "BOX", "Note"]
+    data.append([])
+    data.append([])
+    data.append(headers)
+    data.append(["SO-1", "10", "P1", "A", "US", 5, 1, "USD", 10, "B1", "UPS"])
+    # A-D still contain values, but I-K are blank: this is the business end marker.
+    data.append(["footer", "x", "x", "x", "", 999, "", "", "", "", ""])
+    data.append(["SO-2", "20", "P2", "B", "US", 7, 1, "USD", 11, "B2", "UPS"])
+    workbook.save(path)
+
+
 class ExcelReconcileTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -73,13 +93,14 @@ class ExcelReconcileTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_date_parser_supports_year_and_month_day(self):
-        self.assertEqual(((0, 9, 10), "9.10"), extract_date_from_name("9.10光联.xlsx"))
+        self.assertEqual(((2026, 9, 10), "2026/9/10"), extract_date_from_name("9.10光联.xlsx"))
         self.assertEqual(
-            ((2026, 9, 10), "2026.9.10"),
+            ((2026, 9, 10), "2026/9/10"),
             extract_date_from_name("2026-09-10 MPO.xlsx"),
         )
         self.assertEqual(((0, 0, 0), ""), extract_date_from_name("unknown.xlsx"))
-        self.assertEqual(((0, 9, 10), "9.10"), extract_date_from_name("9.10"))
+        self.assertEqual(((2026, 9, 10), "2026/9/10"), extract_date_from_name("9.10"))
+        self.assertLess(_date_sort_key("2026/9/17"), _date_sort_key("2026/9/18"))
 
     def test_merge_and_reconcile_outputs_traceable_sheets(self):
         create_inspect(self.inspect / "9.10 澳车.xlsx", [10, 20])
@@ -130,8 +151,8 @@ class ExcelReconcileTests(unittest.TestCase):
         type_rows = list(
             workbook["类型箱数"].iter_rows(min_row=2, values_only=True)
         )
-        self.assertIn(("9.10", "澳车", 30, "光联"), type_rows)
-        self.assertIn(("9.10", "814S", 5, "MPO"), type_rows)
+        self.assertIn(("2026/9/10", "澳车", 30, "光联"), type_rows)
+        self.assertIn(("2026/9/10", "814S", 5, "MPO"), type_rows)
         self.assertFalse(workbook["类型箱数"].sheet_view.showGridLines)
 
         merged_sheet = workbook["合并检验表"]
@@ -218,15 +239,53 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual(1, result.droplist_rows)
         mpo = next(
             row for row in result.rows
-            if row.target_type == "MPO" and row.date == "9.10"
+            if row.target_type == "MPO" and row.date == "2026/9/10"
         )
-        self.assertEqual("9.10", mpo.date)
+        self.assertEqual("2026/9/10", mpo.date)
         self.assertEqual(12, mpo.droplist_quantity)
         self.assertEqual("一致", mpo.result)
         self.assertTrue(any("empty" in issue[1] for issue in result.issues))
         self.assertTrue(any(
-            issue[1].startswith("9.10") for issue in result.issues if "empty" in issue[1]
+            "2026-9-10" in issue[1] for issue in result.issues if "empty" in issue[1]
         ))
+
+    def test_droplist_infers_date_and_category_from_ancestor_folder(self):
+        day = self.droplist / "2026.9.22 MPO"
+        day.mkdir()
+        create_droplist(day / "Drop shipment list.xlsx", [9])
+        result = merge_and_reconcile_excel(
+            None, self.droplist, self.root / "output", self.rules
+        )
+        row = result.rows[0]
+        self.assertEqual("2026/9/22", row.date)
+        self.assertEqual("MPO", row.target_type)
+        merged = load_workbook(result.droplist_output_file)["合并Droplist"]
+        headers = {cell.value: cell.column for cell in merged[1]}
+        source_values = [
+            merged.cell(row_index, headers["来源文件"]).value
+            for row_index in range(2, merged.max_row + 1)
+        ]
+        self.assertTrue(any("2026-9-22-MPO" in str(value) for value in source_values))
+
+    def test_droplist_without_mpo_defaults_to_guanglian(self):
+        day = self.droplist / "9.23"
+        day.mkdir()
+        create_droplist(day / "Drop shipment list.xlsx", [4])
+        result = merge_and_reconcile_excel(
+            None, self.droplist, self.root / "output", self.rules
+        )
+        self.assertEqual("2026/9/23", result.rows[0].date)
+        self.assertEqual("光联", result.rows[0].target_type)
+
+    def test_droplist_stops_when_columns_i_to_k_are_empty(self):
+        day = self.droplist / "9.24 MPO"
+        day.mkdir()
+        create_droplist_with_business_end_gap(day / "Drop shipment list.xlsx")
+        result = merge_and_reconcile_excel(
+            None, self.droplist, self.root / "output", self.rules
+        )
+        self.assertEqual(1, result.droplist_rows)
+        self.assertEqual(5, result.rows[0].droplist_quantity)
 
     def test_inspect_and_droplist_can_run_independently(self):
         create_inspect(self.inspect / "9.10 澳车.xlsx", [10])

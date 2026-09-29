@@ -16,14 +16,16 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.4"
+CURRENT_VERSION = "1.5"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "修复 UPS POD 每页重复出现 Cookie 横幅、复制提示和聊天按钮",
-    "设置中增加 POD 整理目录",
-    "整理后的文件按承运商分目录",
+    "文件名映射自动忽略开头日期、空格、大小写和常见分隔符",
+    "检验表详细类型允许留空，归总类别仍必须填写光联或 MPO",
+    "Droplist 可从祖先文件夹读取日期",
+    "检验表和 Droplist 日期统一输出为 YYYY/M/D",
+    "Droplist 遇到 A-D 全空，或在宽表中 I-K 全空时停止读取",
 )
 
 
