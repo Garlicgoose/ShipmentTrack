@@ -16,16 +16,14 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.5"
+CURRENT_VERSION = "1.6"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "文件名映射自动忽略开头日期、空格、大小写和常见分隔符",
-    "检验表详细类型允许留空，归总类别仍必须填写光联或 MPO",
-    "Droplist 可从祖先文件夹读取日期",
-    "检验表和 Droplist 日期统一输出为 YYYY/M/D",
-    "Droplist 遇到 A-D 全空，或在宽表中 I-K 全空时停止读取",
+    "默认窗口放大为 1380×880",
+    "查询结果表、运行日志和 Excel 核对结果获得更大的默认显示区域",
+    "整合 1.4 的 UPS 遮挡修复与 POD 整理，以及 1.5 的映射、日期和 Droplist 规则增强",
 )
 
 

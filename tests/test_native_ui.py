@@ -45,6 +45,10 @@ class NativeUiTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_native_shell_has_three_pages_and_profile(self):
+        self.assertGreaterEqual(self.window.width(), 1380)
+        self.assertGreaterEqual(self.window.height(), 880)
+        self.assertEqual(1080, self.window.minimumWidth())
+        self.assertEqual(700, self.window.minimumHeight())
         self.assertEqual(3, self.window.stack.count())
         self.assertEqual(
             ["跟踪", "Excel 合并与核对", "设置"],
@@ -94,13 +98,15 @@ class NativeUiTests(unittest.TestCase):
                 for carrier, field in self.window.settings_page.audit_rate_inputs.items()
             },
         )
-        self.assertEqual("1.5", APP_VERSION)
+        self.assertEqual("1.6", APP_VERSION)
         popup_buttons = [
             button.text() for button in self.window.profile_popup.findChildren(QPushButton)
         ]
         self.assertEqual(["更新日志", "检查更新"], popup_buttons)
 
     def test_tracking_page_has_smooth_progress_and_live_table(self):
+        self.assertGreaterEqual(self.window.tracking_table.minimumHeight(), 270)
+        self.assertGreaterEqual(self.window.tracking_log.minimumHeight(), 105)
         self.assertEqual(240, self.window._tracking_progress_anim.duration())
         self.window._append_tracking_result({
             "运单号": "123",
@@ -403,6 +409,7 @@ class NativeUiTests(unittest.TestCase):
         self.assertIn("完全优先", info.call_args.args[2])
 
     def test_excel_page_is_single_combined_workflow(self):
+        self.assertGreaterEqual(self.window.excel_table.minimumHeight(), 390)
         self.assertEqual(6, self.window.excel_table.columnCount())
         headers = [
             self.window.excel_table.horizontalHeaderItem(index).text()

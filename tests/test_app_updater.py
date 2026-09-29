@@ -28,7 +28,7 @@ class _Response:
 
 
 class AppUpdaterTests(unittest.TestCase):
-    def manifest(self, content=b"MZ" + b"x" * 2048, version="1.5"):
+    def manifest(self, content=b"MZ" + b"x" * 2048, version="1.6"):
         return {
             "version": version,
             "exe_url": "https://github.com/Garlicgoose/ShipmentTrack/raw/main/release/Shipment%20Track.exe",
@@ -40,12 +40,13 @@ class AppUpdaterTests(unittest.TestCase):
         self.assertTrue(app_updater.is_newer_version("1.10", "1.9"))
         self.assertTrue(app_updater.is_newer_version("1.4", "1.3"))
         self.assertTrue(app_updater.is_newer_version("1.5", "1.4"))
+        self.assertTrue(app_updater.is_newer_version("1.6", "1.5"))
         self.assertTrue(app_updater.is_newer_version("1.3", "1.2"))
         self.assertFalse(app_updater.is_newer_version("1.1.0", "1.1"))
 
     def test_manifest_requires_https_github_and_sha256(self):
         valid = app_updater.validate_manifest(self.manifest())
-        self.assertEqual("1.5", valid["version"])
+        self.assertEqual("1.6", valid["version"])
         invalid = self.manifest()
         invalid["exe_url"] = "http://example.com/app.exe"
         with self.assertRaisesRegex(app_updater.UpdateError, "不受信任"):
@@ -91,21 +92,19 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v15(self):
+    def test_in_app_changelog_reflects_v16(self):
         self.assertEqual(
             (
-                "文件名映射自动忽略开头日期、空格、大小写和常见分隔符",
-                "检验表详细类型允许留空，归总类别仍必须填写光联或 MPO",
-                "Droplist 可从祖先文件夹读取日期",
-                "检验表和 Droplist 日期统一输出为 YYYY/M/D",
-                "Droplist 遇到 A-D 全空，或在宽表中 I-K 全空时停止读取",
+                "默认窗口放大为 1380×880",
+                "查询结果表、运行日志和 Excel 核对结果获得更大的默认显示区域",
+                "整合 1.4 的 UPS 遮挡修复与 POD 整理，以及 1.5 的映射、日期和 Droplist 规则增强",
             ),
             app_updater.CURRENT_CHANGELOG,
         )
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.5")[1].split("## 1.4")[0]
+        section = changelog.split("## 1.6")[1].split("## 1.5")[0]
         for note in app_updater.CURRENT_CHANGELOG:
             self.assertIn(note, section)
 

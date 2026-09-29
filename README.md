@@ -1,7 +1,9 @@
-# ShipmentTrack v1.5
+# ShipmentTrack v1.6
 
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
+
+1.6 默认窗口为 1380×880，查询结果、日志和 Excel 核对表使用更大的显示区域。
 
 ## 运行（源码）
 ```
