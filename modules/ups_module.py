@@ -82,6 +82,78 @@ def close_ups_assistant(page):
     except Exception:
         pass
 
+
+UPS_PRINT_OVERLAY_CSS = """
+    #onetrust-banner-sdk,
+    #onetrust-consent-sdk,
+    [id*="cookie-banner" i],
+    [class*="cookie-banner" i],
+    [class*="toast" i],
+    [class*="snackbar" i],
+    [aria-label*="chat" i],
+    [class*="chatbot" i],
+    [class*="chat-button" i],
+    iframe[src*="chat" i] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
+"""
+
+
+HIDE_UPS_PRINT_OVERLAYS_SCRIPT = r"""
+() => {
+  const phrases = [
+    'this website uses cookies and analytics technologies',
+    'tracking number copied to clipboard',
+    'tracking number copied to cli',
+    'ups assistant',
+    'welcome to ups',
+    'virtual assistant'
+  ];
+  const hidden = [];
+  const elements = Array.from(document.querySelectorAll('body *'));
+  for (const element of elements) {
+    const text = (element.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!text || !phrases.some(phrase => text.includes(phrase))) continue;
+    let target = element;
+    for (let depth = 0; target.parentElement && depth < 5; depth += 1) {
+      const style = getComputedStyle(target);
+      if (['fixed', 'sticky'].includes(style.position)) break;
+      const parent = target.parentElement;
+      const parentText = (parent.innerText || '').replace(/\s+/g, ' ').trim();
+      if (parentText.length > 1800) break;
+      target = parent;
+    }
+    target.style.setProperty('display', 'none', 'important');
+    target.style.setProperty('visibility', 'hidden', 'important');
+    target.setAttribute('data-shipmenttrack-hidden', '1');
+    hidden.push(text.slice(0, 80));
+  }
+  for (const element of document.querySelectorAll(
+    '[aria-label*="chat" i], [class*="chatbot" i], [class*="chat-button" i], iframe[src*="chat" i]'
+  )) {
+    element.style.setProperty('display', 'none', 'important');
+  }
+  return hidden;
+}
+"""
+
+
+def hide_ups_print_overlays(page):
+    """Hide cookie, copied-number toast, chat, and assistant overlays before PDF."""
+    close_cookie_popup(page)
+    close_ups_assistant(page)
+    try:
+        page.add_style_tag(content=UPS_PRINT_OVERLAY_CSS)
+    except Exception:
+        pass
+    try:
+        return page.evaluate(HIDE_UPS_PRINT_OVERLAYS_SCRIPT) or []
+    except Exception:
+        return []
+
     close_selectors = [
         "button[aria-label='Close']",
         "button[title='Close']",
@@ -141,11 +213,11 @@ def close_ups_assistant(page):
 
 
 def cleanup_before_pdf(page):
-    close_ups_assistant(page)
-    time.sleep(0.8)
-    close_ups_assistant(page)
-    time.sleep(0.8)
-    close_ups_assistant(page)
+    # UPS may recreate banners/toasts asynchronously, so run the targeted
+    # cleanup more than once immediately before printing.
+    hide_ups_print_overlays(page)
+    time.sleep(0.5)
+    hide_ups_print_overlays(page)
 
 
 def extract_status(page_text):

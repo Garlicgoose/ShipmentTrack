@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 
 from modules.excel_reconcile import merge_and_reconcile_excel
 from modules.fedex_manual_pod import refresh_pod_audit, update_tracking_result_file
+from modules.pod_files import move_pod_files, update_tracking_pod_paths
 from modules import app_updater
 from modules.settings_store import SettingsStore
 from ui.components import (
@@ -444,6 +445,10 @@ class MainWindow(QMainWindow):
         self.open_tracking_result = OpenFileButton("打开结果")
         self.open_cleaned_result = OpenFileButton("打开清洗文件")
         self.open_pod_audit = OpenFileButton("打开 POD 抽查")
+        self.organize_pods_button = QPushButton("一键整理 POD")
+        self.organize_pods_button.setObjectName("smallButton")
+        self.organize_pods_button.setEnabled(False)
+        self.organize_pods_button.clicked.connect(self._organize_pods)
         self.open_fedex_manual = QPushButton("FedEx 半自动 POD")
         self.open_fedex_manual.setObjectName("smallButton")
         self.open_fedex_manual.setEnabled(False)
@@ -451,6 +456,7 @@ class MainWindow(QMainWindow):
         log_header.addWidget(self.open_tracking_result)
         log_header.addWidget(self.open_cleaned_result)
         log_header.addWidget(self.open_pod_audit)
+        log_header.addWidget(self.organize_pods_button)
         log_header.addWidget(self.open_fedex_manual)
         results_layout.addLayout(log_header)
         self.tracking_log = QPlainTextEdit()
@@ -665,6 +671,7 @@ class MainWindow(QMainWindow):
         self._tracking_output_paths = {}
         self._fedex_manual_jobs = []
         self.open_fedex_manual.setEnabled(False)
+        self.organize_pods_button.setEnabled(False)
         self._tracking_counts = {
             "total": 0, "delivered": 0, "transit": 0, "attention": 0
         }
@@ -890,6 +897,7 @@ class MainWindow(QMainWindow):
                 "audit": output_dir / "pod_audit.xlsx",
             }
             self._refresh_output_buttons(0)
+            self.organize_pods_button.setEnabled(self._tracking_table_has_pods())
         else:
             self._show_status("查询失败")
             self.overview_state_label.setText("查询失败")
@@ -939,6 +947,52 @@ class MainWindow(QMainWindow):
                 self._show_status(f"POD 已保存，但更新结果 Excel 失败：{exc}")
                 return
         self._show_status(f"FedEx {number} 两份网页 POD 已保存")
+        self.organize_pods_button.setEnabled(True)
+
+    def _tracking_table_has_pods(self):
+        for row in range(self.tracking_table.rowCount()):
+            item = self.tracking_table.item(row, 5)
+            if item and item.data(Qt.UserRole):
+                return True
+        return False
+
+    def _organize_pods(self):
+        destination = str(self.settings.get("pod_archive_dir") or "").strip()
+        if not destination:
+            QMessageBox.warning(
+                self, "ShipmentTrack", "请先在设置的“POD 整理目录”中选择目标文件夹。"
+            )
+            return
+        entries = []
+        for row in range(self.tracking_table.rowCount()):
+            carrier_item = self.tracking_table.item(row, 1)
+            pod_item = self.tracking_table.item(row, 5)
+            carrier = carrier_item.text() if carrier_item else "POD"
+            paths = pod_item.data(Qt.UserRole) if pod_item else []
+            if isinstance(paths, str):
+                paths = [paths]
+            entries.extend((carrier, path) for path in (paths or []))
+        if not entries:
+            QMessageBox.information(self, "ShipmentTrack", "当前结果中没有可整理的 POD。")
+            return
+        result = move_pod_files(entries, destination)
+        mapping = {old.casefold(): new for old, new in result.moved}
+        for row in range(self.tracking_table.rowCount()):
+            item = self.tracking_table.item(row, 5)
+            paths = item.data(Qt.UserRole) if item else []
+            if isinstance(paths, str):
+                paths = [paths]
+            if item and paths:
+                item.setData(Qt.UserRole, [mapping.get(str(path).casefold(), path) for path in paths])
+        result_file = self._tracking_output_paths.get("result")
+        if result_file:
+            update_tracking_pod_paths(result_file, result.moved)
+        message = f"已移动 {len(result.moved)} 份 POD 到：\n{Path(destination).expanduser()}"
+        if result.skipped:
+            message += f"\n跳过 {len(result.skipped)} 份"
+        if result.errors:
+            message += f"\n失败 {len(result.errors)} 份，请检查文件是否被占用"
+        QMessageBox.information(self, "ShipmentTrack", message)
 
     def _refresh_manual_pod_audit(self):
         result_path = self._tracking_output_paths.get("result")

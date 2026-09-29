@@ -94,7 +94,7 @@ class NativeUiTests(unittest.TestCase):
                 for carrier, field in self.window.settings_page.audit_rate_inputs.items()
             },
         )
-        self.assertEqual("1.3", APP_VERSION)
+        self.assertEqual("1.4", APP_VERSION)
         popup_buttons = [
             button.text() for button in self.window.profile_popup.findChildren(QPushButton)
         ]
@@ -135,6 +135,7 @@ class NativeUiTests(unittest.TestCase):
             ["FedEx", "DHL", "UPS", "EI", "DSV"],
             list(self.window.carrier_average_labels),
         )
+        self.assertEqual("一键整理 POD", self.window.organize_pods_button.text())
 
     def test_tracking_overview_updates_carrier_averages_only_when_finished(self):
         self.window._carrier_timings = {
@@ -365,6 +366,13 @@ class NativeUiTests(unittest.TestCase):
             page.audit_rate_inputs[carrier].setText(str(value))
         page.save()
         self.assertEqual(expected, self.store.load_settings()["pod_audit_rates"])
+
+    def test_settings_page_saves_pod_archive_directory(self):
+        page = self.window.settings_page
+        destination = str(Path(self.temp_dir.name) / "archive")
+        page.pod_archive.set_value(destination)
+        page.save()
+        self.assertEqual(destination, self.store.load_settings()["pod_archive_dir"])
 
     def test_mapping_preview_and_recommended_rules_are_visible(self):
         page = self.window.settings_page

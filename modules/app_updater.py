@@ -16,13 +16,14 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.3"
+CURRENT_VERSION = "1.4"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "版本号更新为 1.3",
-    "FedEx 半自动由用户打开网址，面板独立置顶",
+    "修复 UPS POD 每页重复出现 Cookie 横幅、复制提示和聊天按钮",
+    "设置中增加 POD 整理目录",
+    "整理后的文件按承运商分目录",
 )
 
 

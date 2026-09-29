@@ -25,6 +25,7 @@ DEFAULT_POD_AUDIT_RATES = {
 DEFAULT_SETTINGS = {
     "tracking_input_file": "",
     "tracking_output_dir": "",
+    "pod_archive_dir": "",
     "inspect_input_dir": "",
     "droplist_input_dir": "",
     "excel_output_dir": "",

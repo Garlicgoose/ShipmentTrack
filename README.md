@@ -1,4 +1,4 @@
-# ShipmentTrack v1.3
+# ShipmentTrack v1.4
 
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
@@ -41,6 +41,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -DistRoot E:\ShipmentTrackBui
   「FedEx 半自动 POD」；程序只打开空白浏览器，由用户自行进入 FedEx 网站。
   点击 Tracking ID 输入框后程序逐字填号；用户自行点击 TRACK 和详情，
   程序识别页面并保存两份 PDF。置顶面板不随主窗口最小化。
+- UPS POD 打印前会清除 Cookie、复制提示、聊天和助手浮层。
+- 设置中可指定 POD 整理目录；跟踪页“一键整理 POD”按承运商移动文件并更新 Excel 路径。
 - 映射设置提供包含/完全/正则匹配方式、真实文件名预览和推荐规则补充；
   使用说明见 `docs/FILENAME_MAPPING_GUIDE.md`。
 - 更新：启动后从 GitHub 静默检查新版本；头像弹窗可查看更新日志或手动检查。

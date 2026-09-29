@@ -80,6 +80,7 @@ class SettingsPage(QWidget):
         paths_form.setVerticalSpacing(10)
         self.tracking_input = PathField(mode="file")
         self.tracking_output = PathField(mode="dir")
+        self.pod_archive = PathField(mode="dir")
         self.inspect_input = PathField(mode="dir")
         self.droplist_input = PathField(mode="dir")
         self.excel_output = PathField(mode="dir")
@@ -110,6 +111,7 @@ class SettingsPage(QWidget):
         self.minimize_browser = QCheckBox("查询时最小化浏览器")
         paths_form.addRow("默认跟踪 Excel", self.tracking_input)
         paths_form.addRow("跟踪输出文件夹", self.tracking_output)
+        paths_form.addRow("POD 整理目录", self.pod_archive)
         paths_form.addRow("检验表文件夹", self.inspect_input)
         paths_form.addRow("Droplist 文件夹", self.droplist_input)
         paths_form.addRow("合并输出文件夹", self.excel_output)
@@ -285,6 +287,7 @@ class SettingsPage(QWidget):
         self.ei_password.setText(self.settings["tracking_ei_password"])
         self.tracking_input.set_value(self.settings["tracking_input_file"])
         self.tracking_output.set_value(self.settings["tracking_output_dir"])
+        self.pod_archive.set_value(self.settings.get("pod_archive_dir", ""))
         self.inspect_input.set_value(self.settings["inspect_input_dir"])
         self.droplist_input.set_value(self.settings["droplist_input_dir"])
         self.excel_output.set_value(self.settings["excel_output_dir"])
@@ -555,6 +558,7 @@ class SettingsPage(QWidget):
             "tracking_ei_password": self.ei_password.text(),
             "tracking_input_file": self.tracking_input.value(),
             "tracking_output_dir": self.tracking_output.value(),
+            "pod_archive_dir": self.pod_archive.value(),
             "inspect_input_dir": self.inspect_input.value(),
             "droplist_input_dir": self.droplist_input.value(),
             "excel_output_dir": self.excel_output.value(),

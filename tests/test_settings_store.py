@@ -29,12 +29,14 @@ class SettingsStoreTests(unittest.TestCase):
     def test_settings_round_trip_keeps_known_keys_only(self):
         settings = self.store.load_settings()
         settings["tracking_output_dir"] = "D:/output"
+        settings["pod_archive_dir"] = "D:/POD archive"
         settings["fedex_api_secret"] = "fedex-secret"
         settings["tracking_ei_password"] = "ei-password"
         settings["unknown"] = "discard"
         self.store.save_settings(settings)
         loaded = self.store.load_settings()
         self.assertEqual("D:/output", loaded["tracking_output_dir"])
+        self.assertEqual("D:/POD archive", loaded["pod_archive_dir"])
         self.assertEqual("fedex-secret", loaded["fedex_api_secret"])
         self.assertEqual("ei-password", loaded["tracking_ei_password"])
         self.assertNotIn("unknown", loaded)
