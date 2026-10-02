@@ -13,7 +13,9 @@ from PySide6.QtWidgets import (
 )
 
 from modules.fedex_manual_pod import ManualFedExPodSession, ManualPodResult
+from modules.fedex_pod_auto import AUTO_BATCH_LIMIT, run_experimental_auto
 from modules.fedex_pod_queue import FedExPodQueue
+from modules.fedex_web_pod import FedExEdgePodSession
 from units import detect_browser_path
 
 
@@ -149,6 +151,63 @@ class ManualPodWorker(QThread):
                 playwright.stop()
 
 
+class ExperimentalAutoPodWorker(QThread):
+    message = Signal(str)
+    completed = Signal(object)
+    queue_changed = Signal()
+    finished_status = Signal(str)
+
+    def __init__(self, queue_path, output_dir, edge_path="", parent=None):
+        super().__init__(parent)
+        self.queue = FedExPodQueue(queue_path)
+        self.output_dir = Path(output_dir)
+        self.edge_path = edge_path if Path(str(edge_path)).name.casefold() == "msedge.exe" else ""
+        self.stop_event = threading.Event()
+
+    def run(self):
+        playwright = session = None
+        try:
+            from playwright.sync_api import sync_playwright
+            playwright = sync_playwright().start()
+            session = FedExEdgePodSession(
+                playwright,
+                self.output_dir,
+                edge_path=self.edge_path,
+                minimize_browser=False,
+                overwrite=False,
+                log_func=self.message.emit,
+            )
+
+            def completed(result):
+                self.completed.emit(
+                    ManualPodResult(result.tracking_number, result.main_pdf, result.detail_pdf)
+                )
+                self.queue_changed.emit()
+
+            outcome = run_experimental_auto(
+                self.queue,
+                session,
+                log=self.message.emit,
+                completed_callback=completed,
+                stop_requested=self.stop_event.is_set,
+            )
+            if outcome.circuit_open:
+                message = "实验自动模式已熔断；失败票已进入暂停列表"
+            else:
+                message = (
+                    f"实验自动批次结束：处理 {outcome.processed}，"
+                    f"完成 {outcome.completed}，暂停 {outcome.paused}"
+                )
+            self.finished_status.emit(message)
+        except Exception as exc:
+            self.finished_status.emit(f"实验自动模式无法继续：{exc}")
+        finally:
+            if session is not None:
+                session.close()
+            if playwright is not None:
+                playwright.stop()
+
+
 class FedExManualDialog(QDialog):
     completed = Signal(object)
     queue_finished = Signal()
@@ -184,11 +243,13 @@ class FedExManualDialog(QDialog):
         self.start_button = QPushButton("打开浏览器并开始")
         self.start_button.setObjectName("primaryButton")
         self.start_button.clicked.connect(self.start)
+        self.auto_button = QPushButton(f"实验自动处理（最多 {AUTO_BATCH_LIMIT} 票）")
+        self.auto_button.clicked.connect(self.start_auto)
         self.import_button = QPushButton("添加 Excel")
         self.import_button.clicked.connect(self.import_excel)
         self.copy_button = QPushButton("复制当前单号")
         self.copy_button.clicked.connect(self.copy_current)
-        for button in (self.start_button, self.import_button, self.copy_button):
+        for button in (self.start_button, self.auto_button, self.import_button, self.copy_button):
             source_controls.addWidget(button)
         layout.addLayout(source_controls)
 
@@ -240,6 +301,10 @@ class FedExManualDialog(QDialog):
             not (self.worker and self.worker.isRunning())
             and bool(counts["pending"] + counts["main_saved"])
         )
+        self.auto_button.setEnabled(
+            not (self.worker and self.worker.isRunning())
+            and bool(counts["pending"] + counts["main_saved"])
+        )
 
     def start(self):
         if self.worker and self.worker.isRunning():
@@ -256,6 +321,36 @@ class FedExManualDialog(QDialog):
         self.worker.finished_status.connect(self._finished)
         self.start_button.setEnabled(False)
         self.import_button.setEnabled(False)
+        self.worker.start()
+
+    def start_auto(self):
+        if self.worker and self.worker.isRunning():
+            return
+        answer = QMessageBox.question(
+            self,
+            "FedEx 实验自动模式",
+            "该模式默认关闭，每轮最多自动处理 10 票；遇到限流、验证码或连续失败会立即熔断。\n\n"
+            "是否开始本轮实验自动处理？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.worker = ExperimentalAutoPodWorker(
+            self.queue.path, self.output_dir, self.browser_path, self
+        )
+        self.worker.message.connect(self.log.appendPlainText)
+        self.worker.completed.connect(self.completed)
+        self.worker.completed.connect(lambda _result: self._refresh_queue())
+        self.worker.queue_changed.connect(self._refresh_queue)
+        self.worker.finished_status.connect(self._finished)
+        self.start_button.setEnabled(False)
+        self.auto_button.setEnabled(False)
+        self.import_button.setEnabled(False)
+        for button in (self.print_button, self.next_button, self.pause_button,
+                       self.skip_button, self.retry_button):
+            button.setEnabled(False)
+        self.log.appendPlainText("实验自动模式启动；本轮硬限制最多 10 票。")
         self.worker.start()
 
     def _set_current(self, number, index, total):
@@ -330,7 +425,14 @@ class FedExManualDialog(QDialog):
         self.log.appendPlainText(message)
         self.current_number = ""
         self.import_button.setEnabled(True)
+        for button in (self.print_button, self.next_button, self.pause_button,
+                       self.skip_button, self.retry_button):
+            button.setEnabled(True)
         self._refresh_queue()
+        counts = self.queue.counts()
+        has_ready = bool(counts["pending"] + counts["main_saved"])
+        self.start_button.setEnabled(has_ready)
+        self.auto_button.setEnabled(has_ready)
         self.queue_finished.emit()
 
     def closeEvent(self, event):

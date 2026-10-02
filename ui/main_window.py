@@ -450,7 +450,7 @@ class MainWindow(QMainWindow):
         self.organize_pods_button.setObjectName("smallButton")
         self.organize_pods_button.setEnabled(False)
         self.organize_pods_button.clicked.connect(self._organize_pods)
-        self.open_fedex_manual = QPushButton("FedEx 半自动 POD")
+        self.open_fedex_manual = QPushButton("FedEx POD 任务中心")
         self.open_fedex_manual.setObjectName("smallButton")
         self.open_fedex_manual.setEnabled(False)
         self.open_fedex_manual.clicked.connect(self._open_fedex_manual)

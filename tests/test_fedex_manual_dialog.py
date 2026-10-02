@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt
 
 from modules.fedex_manual_pod import ManualPageSave
@@ -21,11 +21,24 @@ class ManualDialogTests(unittest.TestCase):
             dialog = FedExManualDialog(["541964339019"], folder)
             self.assertIn("用户负责 TRACK", dialog.stage_label.text())
             self.assertEqual("打开浏览器并开始", dialog.start_button.text())
+            self.assertIn("实验自动处理", dialog.auto_button.text())
             self.assertEqual("保存当前页面 PDF", dialog.print_button.text())
             self.assertEqual("下一票", dialog.next_button.text())
             self.assertEqual("跳过当前", dialog.skip_button.text())
             self.assertTrue(dialog.windowFlags() & Qt.WindowStaysOnTopHint)
             self.assertTrue(dialog.windowFlags() & Qt.Window)
+            dialog.close()
+
+    def test_experimental_auto_mode_is_opt_in(self):
+        with tempfile.TemporaryDirectory() as folder:
+            dialog = FedExManualDialog(["541964339019"], folder)
+            with mock.patch(
+                "ui.fedex_manual_dialog.QMessageBox.question",
+                return_value=QMessageBox.No,
+            ) as question:
+                dialog.start_auto()
+            question.assert_called_once()
+            self.assertIsNone(dialog.worker)
             dialog.close()
 
     def test_worker_does_not_advance_without_human_query(self):

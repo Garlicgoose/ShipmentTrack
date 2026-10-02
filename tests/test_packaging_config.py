@@ -131,6 +131,8 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn('"modules.pod_audit"', main_source)
         self.assertIn('"modules.fedex_web_pod"', main_source)
         self.assertIn('"modules.fedex_manual_pod"', main_source)
+        self.assertIn('"modules.fedex_pod_queue"', main_source)
+        self.assertIn('"modules.fedex_pod_auto"', main_source)
         self.assertIn('"modules.excel_reconcile"', main_source)
 
     def test_dependencies_are_pinned_without_pandas(self):

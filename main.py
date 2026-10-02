@@ -73,6 +73,8 @@ def main():
                 "modules.fedex_module",
                 "modules.fedex_web_pod",
                 "modules.fedex_manual_pod",
+                "modules.fedex_pod_queue",
+                "modules.fedex_pod_auto",
             ):
                 importlib.import_module(module_name)
             from ui.main_window import PROFILE_AVATAR
