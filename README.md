@@ -1,9 +1,9 @@
-# ShipmentTrack v1.6
+# ShipmentTrack v1.7
 
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
 
-1.6 默认窗口为 1380×880，查询结果、日志和 Excel 核对表使用更大的显示区域。
+1.7 增加可恢复的 FedEx POD 任务中心；默认窗口为 1380×880。
 
 ## 运行（源码）
 ```
@@ -39,10 +39,12 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -DistRoot E:\ShipmentTrackBui
 - 官网语言：DHL（hk-en）、UPS（loc=en_US）由 URL 决定；DSV、EI 没有语言参数，
   程序把浏览器 Accept-Language 与 navigator.language 锁成 en-US，页面若仍为中文
   再兜底点击站点自带的 English 选项，保证状态文案与英文选择器一致。
-- FedEx 网页 POD：批量任务只查 API 状态，不自动下载。完成后在跟踪页打开
-  「FedEx 半自动 POD」；程序只打开空白浏览器，由用户自行进入 FedEx 网站。
-  点击 Tracking ID 输入框后程序逐字填号；用户自行点击 TRACK 和详情，
-  程序识别页面并保存两份 PDF。置顶面板不随主窗口最小化。
+- FedEx 网页 POD：批量任务先用 API 查状态，送达票进入「FedEx POD 任务中心」。
+  半自动模式在用户点击“保存当前页面 PDF”时才检查一次页面并保存；用户负责
+  TRACK 和详情，下一票只复制新单号，不自动切换网页。队列、两份 PDF 阶段和
+  暂停原因持久保存，也可导入带“运单号”列的普通 Excel。置顶面板不随主窗口最小化。
+- FedEx 全自动仅作为默认关闭的受限实验模式：每轮最多 10 票，串行低频执行，
+  遇限流、验证码或连续失败立即熔断并移入暂停列表。
 - UPS POD 打印前会清除 Cookie、复制提示、聊天和助手浮层。
 - 设置中可指定 POD 整理目录；跟踪页“一键整理 POD”按承运商移动文件并更新 Excel 路径。
 - 映射设置提供包含/完全/正则匹配方式、真实文件名预览和推荐规则补充；
@@ -59,16 +61,17 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -DistRoot E:\ShipmentTrackBui
 检验表原类型和用于核对的归总类别；归总类别只允许光联或 MPO。FedEx API
 Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置文件。
 
-## FedEx 逻辑（2026-09-14 修订）
+## FedEx 逻辑（2026-10-03 修订）
 - 先 trackingnumbers 正常查主单（非 MPS）——无子单运单以官网状态为准
 - associatedshipments 返回 2–39 件时，所有可见关联单全部送达才算送达
 - 返回达到 40 件时，40 件全部送达则暂定送达，并写入人工复核备注
 - API 只负责快速查询状态，不再请求官方 POD 文档接口
-- 只有送达后才启动系统安装的真实 Microsoft Edge，并复用 `data/fedex_edge_profile`
-- 在半自动面板中由用户提交查询、打开详情后，程序保存两份网页 PDF：
+- 只有送达后才进入 FedEx POD 任务中心；任务数据库保存到本次输出根目录
+- 在半自动面板中由用户提交查询、打开详情并点击保存按钮，程序单次识别后保存：
   `运单号.pdf` 为查询主页，`运单号+.pdf` 为详情页
-- 网页 POD 固定使用英文站；打印前自动关闭 Cookie 和聊天浮层
-- FedEx 半自动面板独立于其他承运商的 10 秒登录等待；可在浏览器中完成公司登录
+- “下一票”只复制新运单号，不自动操作浏览器；点击输入框后仍可自动逐字填号
+- 实验自动模式使用真实 Microsoft Edge 和持久会话，但每轮硬限制 10 票并带熔断
+- 网页 PDF 打印前自动关闭 Cookie 和聊天浮层
 - 界面中的同一个绿色 POD 圆点会依次打开这两份文件
 
 ## Droplist 识别

@@ -31,8 +31,9 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 1. `main.py` 创建应用并执行启动检查。
 2. `ui/main_window.py` 提供跟踪、Excel 合并与核对、设置三个页面。
 3. `modules/tracking_runner.py` 清洗运单、复用承运商会话并实时回传结果。
-4. FedEx API 只查询状态；送达后由 `FedExEdgePodSession` 启动真实 Edge，
-   打印查询主页和从主页点击进入的详情页。其他承运商由
+4. FedEx API 只查询状态；送达后加入持久化 POD 队列。正式半自动流程由用户
+   点击 TRACK、详情和保存按钮，程序只在保存时单次识别页面。受限实验模式由
+   `FedExEdgePodSession` 启动真实 Edge，每轮最多 10 票并带熔断。其他承运商由
    `TrackingCarrierSession` 通过 CDP 使用实际 Edge 或 Google Chrome。
 5. 只有抵达货件允许下载 POD；只查状态模式不会下载 POD。
 6. 五个承运商分别使用设置中的 0%–100% 抽查比例；FedEx 样本同时检查主页
@@ -50,6 +51,7 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 - `data/settings.json`：界面设置；密码和 Secret 使用 Windows DPAPI 加密。
 - `data/fedex_status_cache.json`：FedEx 状态缓存。
 - `data/fedex_edge_profile/`：FedEx 真实 Edge 的持久化 Cookie 和站点状态。
+- `<输出目录>/fedex_pod_queue.sqlite`：FedEx POD 阶段、暂停原因和 Excel 来源。
 - `data/machine_id`、`data/authorization.cache`：机器标识与 DPAPI 授权缓存。
 
 ## Excel 输出

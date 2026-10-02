@@ -16,14 +16,14 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.6"
+CURRENT_VERSION = "1.7"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "默认窗口放大为 1380×880",
-    "查询结果表、运行日志和 Excel 核对结果获得更大的默认显示区域",
-    "整合 1.4 的 UPS 遮挡修复与 POD 整理，以及 1.5 的映射、日期和 Droplist 规则增强",
+    "FedEx POD 任务使用本地持久队列，程序或浏览器关闭后可以续做",
+    "半自动模式改为按钮触发保存，下一票只复制单号，不自动切换网页",
+    "新增默认关闭的受限全自动实验模式，每轮最多 10 票并在限流时熔断",
 )
 
 

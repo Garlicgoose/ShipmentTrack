@@ -1,4 +1,4 @@
-# ShipmentTrack v1.6
+# ShipmentTrack v1.7
 
 快递批量查询工具（DHL / DSV / EI / UPS / FedEx），Garlicgoose 制作。
 
@@ -8,7 +8,7 @@
 - 每个快递（DHL/DSV/EI/UPS）执行前自动预热：打开官网、关闭 cookie/欢迎弹窗等浮层，再开始查询
 - DHL / DSV / EI / UPS 通过外接浏览器查询；FedEx 状态通过官方 API 查询，
   送达后用系统真实 Microsoft Edge 保存官网查询页面
-- DHL、UPS、EI、DSV 已送达时自动保存 POD；FedEx 的网页 POD 在半自动面板保存
+- DHL、UPS、EI、DSV 已送达时自动保存 POD；FedEx 网页 POD 进入可恢复任务中心
 - 输出结果 Excel：运单号 / 快递公司 / **状态** / 抵达时间 / 用时(秒) / 备注
   - 「状态」列是读取到的原始状态（如 Delivered / In Transit），用于排查问题
   - FedEx 返回 2–39 个关联单时：全部送达才算送达
@@ -16,10 +16,12 @@
     备注列标注需要人工复核
 - FedEx 不下载官方 POD：保存 `运单号.pdf` 查询主页和
     `运单号+.pdf` 详情页两份文件
-- FedEx 在批量查询时只查状态；打开「FedEx 半自动 POD」后，程序只打开
-  空白浏览器。您自行进入 FedEx 网站，点击 Tracking ID 输入框后才填号；
-  您自己点击 TRACK 和详情，程序只负责检测页面并保存两份 PDF，不自动
-  打开网址或提交搜索。置顶小面板不随主窗口最小化
+- FedEx 在批量查询时只查状态；打开「FedEx POD 任务中心」后，可使用正式
+  半自动模式。点击 Tracking ID 输入框后程序填号，您点击 TRACK 和详情，
+  并在主页、详情页分别点击“保存当前页面 PDF”。程序只在按钮点击时检查一次
+  页面；“下一票”只复制新单号，不自动导航、刷新或提交搜索
+- 任务中心可添加带“运单号”列的普通 Excel，并持久保存进度和暂停列表
+- 全自动为默认关闭的受限实验模式，每轮最多 10 票；限流或连续失败会立即停止
 - 半自动队列结束后会重新执行 POD 抽查，并更新跟踪结果 Excel 中的 POD 路径
 - 勾选「只查状态」时只查状态，不下载任何 PDF
 - DSV、EI 官网固定显示英文（浏览器语言锁成 en-US；DHL、UPS 由网址自带英文参数）
@@ -74,7 +76,7 @@ Shipment Track\
 ```
 
 程序使用电脑已安装的 Edge 或 Google Chrome，不需要另行下载 Chromium。
-头像弹窗中可以查看 v1.6 更新日志或手动检查 GitHub 新版本。
+头像弹窗中可以查看 v1.7 更新日志或手动检查 GitHub 新版本。
 
 ## 授权说明（给使用者）
 

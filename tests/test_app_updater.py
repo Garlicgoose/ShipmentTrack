@@ -41,6 +41,7 @@ class AppUpdaterTests(unittest.TestCase):
         self.assertTrue(app_updater.is_newer_version("1.4", "1.3"))
         self.assertTrue(app_updater.is_newer_version("1.5", "1.4"))
         self.assertTrue(app_updater.is_newer_version("1.6", "1.5"))
+        self.assertTrue(app_updater.is_newer_version("1.7", "1.6"))
         self.assertTrue(app_updater.is_newer_version("1.3", "1.2"))
         self.assertFalse(app_updater.is_newer_version("1.1.0", "1.1"))
 
@@ -92,19 +93,19 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v16(self):
+    def test_in_app_changelog_reflects_v17(self):
         self.assertEqual(
             (
-                "默认窗口放大为 1380×880",
-                "查询结果表、运行日志和 Excel 核对结果获得更大的默认显示区域",
-                "整合 1.4 的 UPS 遮挡修复与 POD 整理，以及 1.5 的映射、日期和 Droplist 规则增强",
+                "FedEx POD 任务使用本地持久队列，程序或浏览器关闭后可以续做",
+                "半自动模式改为按钮触发保存，下一票只复制单号，不自动切换网页",
+                "新增默认关闭的受限全自动实验模式，每轮最多 10 票并在限流时熔断",
             ),
             app_updater.CURRENT_CHANGELOG,
         )
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.6")[1].split("## 1.5")[0]
+        section = changelog.split("## 1.7")[1].split("## 1.6")[0]
         for note in app_updater.CURRENT_CHANGELOG:
             self.assertIn(note, section)
 

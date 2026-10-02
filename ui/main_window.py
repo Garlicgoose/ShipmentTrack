@@ -360,7 +360,7 @@ class MainWindow(QMainWindow):
         self.pod_switch = ToggleSwitch()
         self.pod_switch.setObjectName("podSwitch")
         self.pod_switch.setChecked(not bool(self.settings.get("only_arrival")))
-        self.pod_switch.setToolTip("其他承运商自动下载；FedEx 送达后在半自动面板保存 POD")
+        self.pod_switch.setToolTip("其他承运商自动下载；FedEx 送达后进入 POD 任务中心")
         mode_row.addWidget(self.pod_switch)
         mode_row.addWidget(QLabel("POD"))
         mode_row.addStretch(1)
