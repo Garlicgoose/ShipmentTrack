@@ -60,6 +60,13 @@ class ManualPodResult:
     detail_pdf: str
 
 
+@dataclass(frozen=True)
+class ManualPageSave:
+    page_type: str
+    path: str
+    snapshot: tuple[str, str] | None = None
+
+
 class ManualFedExPodSession:
     def __init__(self, playwright, browser_path, browser_type, output_dir, log=None):
         self.output_dir = Path(output_dir)
@@ -157,6 +164,47 @@ class ManualFedExPodSession:
         snapshot = (_body_text(self.page), str(self.page.url))
         _print_current_page(self.context, self.page, main_pdf)
         return str(main_pdf), snapshot
+
+    def save_current(self, number, expected_page, snapshot=None):
+        """Inspect once, then save only the expected main or detail page."""
+        number = normalize_tracking_number(number)
+        page = self._find_fedex_page()
+        if page is None:
+            raise RuntimeError("没有找到用户打开的 FedEx 页面")
+        text = _body_text(page)
+        if BLOCK_PAGE_RE.search(text):
+            raise RuntimeError("FedEx 页面出现限流、验证码或服务错误；已停止保存")
+        compact = re.sub(r"[\s-]+", "", text)
+        if number not in compact:
+            raise RuntimeError("当前页面不属于本票运单，不保存")
+
+        if expected_page == "main":
+            if not _main_page_ready(page, number):
+                if DETAIL_CONTENT_RE.search(text):
+                    raise RuntimeError("当前看起来是详情页；请先返回并保存查询主页")
+                raise RuntimeError("当前页面不是可确认的 FedEx 查询主页，不保存")
+            main_pdf, _ = output_paths(self.output_dir, number)
+            current_snapshot = (text, str(page.url))
+            _print_current_page(self.context, page, main_pdf)
+            return ManualPageSave("main", str(main_pdf), current_snapshot)
+
+        if expected_page != "detail":
+            raise ValueError(f"未知页面阶段：{expected_page}")
+        if snapshot is not None:
+            detail_ready = self.detail_ready(number, snapshot)
+        else:
+            # A resumed queue no longer has the in-memory main snapshot. Require
+            # both the current number and an explicit FedEx details marker.
+            detail_ready = bool(DETAIL_CONTENT_RE.search(text))
+        if not detail_ready:
+            if _main_page_ready(page, number):
+                raise RuntimeError("当前仍是查询主页；请点击 FedEx 详情后再保存")
+            raise RuntimeError("当前页面不是可确认的 FedEx 详情页，不保存")
+        _, detail_pdf = output_paths(self.output_dir, number)
+        _print_current_page(self.context, page, detail_pdf)
+        if not is_valid_pdf(detail_pdf):
+            raise RuntimeError("FedEx 详情 PDF 无效")
+        return ManualPageSave("detail", str(detail_pdf))
 
     def detail_ready(self, number, snapshot):
         page = self._find_fedex_page()

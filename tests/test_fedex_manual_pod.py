@@ -134,6 +134,45 @@ class ManualFedExPodTests(unittest.TestCase):
                     session.save_main("541964339019")
             printer.assert_not_called()
 
+    def test_save_current_inspects_only_when_called_and_saves_main(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController"), \
+             mock.patch.object(manual, "_print_current_page") as printer, \
+             mock.patch.object(manual, "_main_page_ready", return_value=True), \
+             mock.patch.object(manual, "_body_text", return_value="541964339019 Delivered"):
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            session.page = mock.Mock(url="https://www.fedex.com/fedextrack/")
+            session.context = mock.Mock(pages=[session.page])
+            saved = session.save_current("541964339019", "main")
+            self.assertEqual("main", saved.page_type)
+            self.assertTrue(saved.path.endswith("541964339019.pdf"))
+            printer.assert_called_once()
+
+    def test_save_current_rejects_main_when_detail_is_expected(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController"), \
+             mock.patch.object(manual, "_print_current_page") as printer, \
+             mock.patch.object(manual, "_main_page_ready", return_value=True), \
+             mock.patch.object(manual, "_body_text", return_value="541964339019 Delivered"):
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            session.page = mock.Mock(url="https://www.fedex.com/fedextrack/")
+            session.context = mock.Mock(pages=[session.page])
+            with self.assertRaisesRegex(RuntimeError, "仍是查询主页"):
+                session.save_current("541964339019", "detail")
+            printer.assert_not_called()
+
+    def test_save_current_rejects_wrong_tracking_number(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController"), \
+             mock.patch.object(manual, "_print_current_page") as printer, \
+             mock.patch.object(manual, "_body_text", return_value="541964339020 Delivered"):
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            session.page = mock.Mock(url="https://www.fedex.com/fedextrack/")
+            session.context = mock.Mock(pages=[session.page])
+            with self.assertRaisesRegex(RuntimeError, "不属于本票"):
+                session.save_current("541964339019", "main")
+            printer.assert_not_called()
+
     def test_user_navigation_during_listener_attach_is_transient(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
              mock.patch.object(manual, "RealBrowserController"):
