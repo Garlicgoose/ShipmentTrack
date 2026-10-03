@@ -50,6 +50,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -DistRoot E:\ShipmentTrackBui
 - 映射设置提供包含/完全/正则匹配方式、真实文件名预览和推荐规则补充；
   使用说明见 `docs/FILENAME_MAPPING_GUIDE.md`。
 - 更新：启动后从 GitHub 静默检查新版本；头像弹窗可查看更新日志或手动检查。
+- 跟踪页的“结果操作”集中放置结果文件、POD 抽查、整理和 FedEx 任务中心入口；
+  “运行日志”在下方独立显示。
 
 界面中的 POD 绿色圆点、查询结果、清洗文件、POD 抽查和两份合并 Excel
 均可直接点击打开。
@@ -61,7 +63,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -DistRoot E:\ShipmentTrackBui
 检验表原类型和用于核对的归总类别；归总类别只允许光联或 MPO。FedEx API
 Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置文件。
 
-## FedEx 逻辑（2026-10-03 修订）
+## FedEx 逻辑（2026-10-04 修订）
 - 先 trackingnumbers 正常查主单（非 MPS）——无子单运单以官网状态为准
 - associatedshipments 返回 2–39 件时，所有可见关联单全部送达才算送达
 - 返回达到 40 件时，40 件全部送达则暂定送达，并写入人工复核备注
@@ -73,6 +75,19 @@ Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置�
 - 实验自动模式使用真实 Microsoft Edge 和持久会话，但每轮硬限制 10 票并带熔断
 - 网页 PDF 打印前自动关闭 Cookie 和聊天浮层
 - 界面中的同一个绿色 POD 圆点会依次打开这两份文件
+
+## FedEx POD 任务中心操作
+
+1. 正常完成批量状态查询后，点击跟踪页“结果操作”中的「FedEx POD 任务中心」。
+2. 也可以点击「添加 Excel」，导入带“运单号”列表头的普通 `.xlsx` 文件。
+3. 半自动模式会复制当前单号；点击 FedEx 输入框后程序逐字填号，由用户点击 TRACK。
+4. 查询主页显示正确运单后点击「保存当前页面 PDF」，程序保存 `运单号.pdf`。
+5. 用户打开 FedEx 详情，再点击同一个保存按钮，程序识别详情并保存 `运单号+.pdf`。
+6. 点击「下一票」只推进任务并复制下一个单号，不导航、刷新或提交 FedEx 页面。
+7. 限流、验证码和人工暂停任务进入暂停列表；选中后可恢复，程序重启后进度仍保留。
+
+实验自动模式必须由用户主动确认，每轮最多处理 10 票。它不会自动恢复暂停任务；
+检测到限流、验证码或连续失败时立即停止，剩余任务继续保留在本地队列中。
 
 ## Droplist 识别
 - 日期优先从文件名读取，没有日期时逐级读取祖先文件夹，并统一输出 `2026/9/10`
