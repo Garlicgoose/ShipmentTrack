@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -11,7 +12,7 @@ class FedExPodQueueTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
-        self.queue = FedExPodQueue(self.root / "fedex_pod_queue.sqlite")
+        self.queue = FedExPodQueue(self.root / "fedex_pod_queue.json")
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -82,6 +83,13 @@ class FedExPodQueueTests(unittest.TestCase):
             },
             self.queue.counts(),
         )
+
+    def test_queue_is_plain_json_without_sqlite_runtime_dependency(self):
+        self.queue.add_numbers(["541964339019"])
+        document = json.loads(self.queue.path.read_text("utf-8"))
+        self.assertEqual(1, document["version"])
+        self.assertEqual("541964339019", document["tasks"][0]["number"])
+        self.assertEqual([], list(self.queue.path.parent.glob(f".{self.queue.path.name}.*.tmp")))
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ def default_queue_path(output_dir) -> Path:
         root = output.parents[1]
     else:
         root = output
-    return root / "fedex_pod_queue.sqlite"
+    return root / "fedex_pod_queue.json"
 
 
 class ManualPodWorker(QThread):

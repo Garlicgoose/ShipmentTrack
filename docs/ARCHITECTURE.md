@@ -51,7 +51,7 @@ ui/         PySide6 原生界面、控件、样式和后台线程
 - `data/settings.json`：界面设置；密码和 Secret 使用 Windows DPAPI 加密。
 - `data/fedex_status_cache.json`：FedEx 状态缓存。
 - `data/fedex_edge_profile/`：FedEx 真实 Edge 的持久化 Cookie 和站点状态。
-- `<输出目录>/fedex_pod_queue.sqlite`：FedEx POD 阶段、暂停原因和 Excel 来源。
+- `<输出目录>/fedex_pod_queue.json`：FedEx POD 阶段、暂停原因和 Excel 来源；原子写入且兼容 1.6 的运行依赖。
 - `data/machine_id`、`data/authorization.cache`：机器标识与 DPAPI 授权缓存。
 
 ## Excel 输出

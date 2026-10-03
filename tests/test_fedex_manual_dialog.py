@@ -44,7 +44,7 @@ class ManualDialogTests(unittest.TestCase):
     def test_worker_does_not_advance_without_human_query(self):
         with tempfile.TemporaryDirectory() as folder:
             worker = ManualPodWorker(
-                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.sqlite")
+                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.json")
             )
             session = mock.Mock()
             with mock.patch("ui.fedex_manual_dialog.time.sleep", side_effect=lambda _: worker.stop_event.set()):
@@ -54,7 +54,7 @@ class ManualDialogTests(unittest.TestCase):
     def test_skip_current_is_honored_before_page_printing(self):
         with tempfile.TemporaryDirectory() as folder:
             worker = ManualPodWorker(
-                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.sqlite")
+                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.json")
             )
             session = mock.Mock()
             worker.skip_event.set()
@@ -65,7 +65,7 @@ class ManualDialogTests(unittest.TestCase):
     def test_worker_prints_only_after_save_button_event(self):
         with tempfile.TemporaryDirectory() as folder:
             worker = ManualPodWorker(
-                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.sqlite")
+                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.json")
             )
             session = mock.Mock()
             session.save_current.return_value = ManualPageSave(
@@ -82,7 +82,7 @@ class ManualDialogTests(unittest.TestCase):
     def test_next_does_not_navigate_or_advance_incomplete_task(self):
         with tempfile.TemporaryDirectory() as folder:
             worker = ManualPodWorker(
-                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.sqlite")
+                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.json")
             )
             session = mock.Mock()
             worker.next_event.set()

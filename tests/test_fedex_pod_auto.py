@@ -11,7 +11,7 @@ from modules.fedex_web_pod import FedExWebPodResult
 class ExperimentalAutoPodTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.queue = FedExPodQueue(Path(self.temp_dir.name) / "queue.sqlite")
+        self.queue = FedExPodQueue(Path(self.temp_dir.name) / "queue.json")
 
     def tearDown(self):
         self.temp_dir.cleanup()
