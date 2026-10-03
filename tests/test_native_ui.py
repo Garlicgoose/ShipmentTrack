@@ -107,6 +107,20 @@ class NativeUiTests(unittest.TestCase):
     def test_tracking_page_has_smooth_progress_and_live_table(self):
         self.assertGreaterEqual(self.window.tracking_table.minimumHeight(), 270)
         self.assertGreaterEqual(self.window.tracking_log.minimumHeight(), 105)
+
+    def test_tracking_actions_and_log_have_separate_rows(self):
+        self.window.show()
+        self.app.processEvents()
+        self.assertEqual("结果操作", self.window.tracking_actions_title.text())
+        self.assertEqual("运行日志", self.window.tracking_log_title.text())
+        self.assertLess(
+            self.window.tracking_actions_bar.geometry().bottom(),
+            self.window.tracking_log_title.geometry().top(),
+        )
+        self.assertLess(
+            self.window.tracking_log_title.geometry().bottom(),
+            self.window.tracking_log.geometry().top(),
+        )
         self.assertEqual(240, self.window._tracking_progress_anim.duration())
         self.window._append_tracking_result({
             "运单号": "123",
