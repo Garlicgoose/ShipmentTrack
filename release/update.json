@@ -1,10 +1,11 @@
 {
-  "version": "1.6",
-  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.6-20260929/release/Shipment%20Track.exe",
-  "sha256": "59eee002ed3d280e190d8514adb8891d54ef09cfbf3ddedcc649d9d6e1da883a",
+  "version": "1.7",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.7-20261004/release/Shipment%20Track.exe",
+  "sha256": "88decbb9bc66b9a269473b1d212a7e96f6692949f8c51923b5beb6eba91ac85a",
   "notes": [
-    "默认窗口放大为 1380×880",
-    "查询结果表、运行日志和 Excel 核对结果获得更大的默认显示区域",
-    "整合 1.4 的 UPS 遮挡修复与 POD 整理，以及 1.5 的映射、日期和 Droplist 规则增强"
+    "FedEx POD 任务使用本地持久队列，程序或浏览器关闭后可以续做",
+    "半自动模式改为按钮触发保存，下一票只复制单号，不自动切换网页",
+    "新增默认关闭的受限全自动实验模式，每轮最多 10 票并在限流时熔断",
+    "跟踪页将结果操作与运行日志分区显示"
   ]
 }
