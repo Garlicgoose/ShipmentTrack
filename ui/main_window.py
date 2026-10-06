@@ -452,6 +452,9 @@ class MainWindow(QMainWindow):
         self.open_pod_audit = OpenFileButton("打开 POD 抽查")
         self.organize_pods_button = QPushButton("一键整理 POD")
         self.organize_pods_button.setObjectName("smallButton")
+        self.organize_pods_button.setToolTip(
+            "仅整理结果中的 POD PDF 文件；不会移动、删除或重命名来源文件夹。"
+        )
         self.organize_pods_button.setEnabled(False)
         self.organize_pods_button.clicked.connect(self._organize_pods)
         self.open_fedex_manual = QPushButton("FedEx POD 任务中心")
@@ -963,8 +966,13 @@ class MainWindow(QMainWindow):
     def _tracking_table_has_pods(self):
         for row in range(self.tracking_table.rowCount()):
             item = self.tracking_table.item(row, 5)
-            if item and item.data(Qt.UserRole):
-                return True
+            paths = item.data(Qt.UserRole) if item else []
+            if isinstance(paths, str):
+                paths = [paths]
+            for path in paths or []:
+                candidate = Path(str(path or "")).expanduser()
+                if candidate.is_file() and candidate.suffix.casefold() == ".pdf":
+                    return True
         return False
 
     def _organize_pods(self):
@@ -975,6 +983,7 @@ class MainWindow(QMainWindow):
             )
             return
         entries = []
+        rejected = []
         for row in range(self.tracking_table.rowCount()):
             carrier_item = self.tracking_table.item(row, 1)
             pod_item = self.tracking_table.item(row, 5)
@@ -982,9 +991,17 @@ class MainWindow(QMainWindow):
             paths = pod_item.data(Qt.UserRole) if pod_item else []
             if isinstance(paths, str):
                 paths = [paths]
-            entries.extend((carrier, path) for path in (paths or []))
+            for path in paths or []:
+                candidate = Path(str(path or "")).expanduser()
+                if candidate.is_file() and candidate.suffix.casefold() == ".pdf":
+                    entries.append((carrier, str(candidate)))
+                elif str(path or "").strip():
+                    rejected.append(str(candidate))
         if not entries:
-            QMessageBox.information(self, "ShipmentTrack", "当前结果中没有可整理的 POD。")
+            message = "当前结果中没有可整理的 POD PDF 文件。"
+            if rejected:
+                message += f"\n已安全忽略 {len(rejected)} 个目录、非 PDF 或不存在的路径。"
+            QMessageBox.information(self, "ShipmentTrack", message)
             return
         result = move_pod_files(entries, destination)
         mapping = {old.casefold(): new for old, new in result.moved}
@@ -1001,6 +1018,8 @@ class MainWindow(QMainWindow):
         message = f"已移动 {len(result.moved)} 份 POD 到：\n{Path(destination).expanduser()}"
         if result.skipped:
             message += f"\n跳过 {len(result.skipped)} 份"
+        if rejected:
+            message += f"\n安全忽略 {len(rejected)} 个目录、非 PDF 或不存在的路径"
         if result.errors:
             message += f"\n失败 {len(result.errors)} 份，请检查文件是否被占用"
         QMessageBox.information(self, "ShipmentTrack", message)

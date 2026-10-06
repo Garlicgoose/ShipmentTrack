@@ -108,19 +108,6 @@ class NativeUiTests(unittest.TestCase):
         self.assertGreaterEqual(self.window.tracking_table.minimumHeight(), 270)
         self.assertGreaterEqual(self.window.tracking_log.minimumHeight(), 105)
 
-    def test_tracking_actions_and_log_have_separate_rows(self):
-        self.window.show()
-        self.app.processEvents()
-        self.assertEqual("结果操作", self.window.tracking_actions_title.text())
-        self.assertEqual("运行日志", self.window.tracking_log_title.text())
-        self.assertLess(
-            self.window.tracking_actions_bar.geometry().bottom(),
-            self.window.tracking_log_title.geometry().top(),
-        )
-        self.assertLess(
-            self.window.tracking_log_title.geometry().bottom(),
-            self.window.tracking_log.geometry().top(),
-        )
         self.assertEqual(240, self.window._tracking_progress_anim.duration())
         self.window._append_tracking_result({
             "运单号": "123",
@@ -156,6 +143,38 @@ class NativeUiTests(unittest.TestCase):
             list(self.window.carrier_average_labels),
         )
         self.assertEqual("一键整理 POD", self.window.organize_pods_button.text())
+
+    def test_tracking_actions_and_log_have_separate_rows(self):
+        self.window.show()
+        self.app.processEvents()
+        self.assertEqual("结果操作", self.window.tracking_actions_title.text())
+        self.assertEqual("运行日志", self.window.tracking_log_title.text())
+        self.assertLess(
+            self.window.tracking_actions_bar.geometry().bottom(),
+            self.window.tracking_log_title.geometry().top(),
+        )
+        self.assertLess(
+            self.window.tracking_log_title.geometry().bottom(),
+            self.window.tracking_log.geometry().top(),
+        )
+
+    def test_pod_organizer_ignores_directory_paths_before_move(self):
+        directory = Path(self.temp_dir.name) / "4915200930"
+        directory.mkdir()
+        self.window.settings["pod_archive_dir"] = str(Path(self.temp_dir.name) / "archive")
+        self.window.tracking_table.insertRow(0)
+        self.window.tracking_table.setItem(0, 1, QTableWidgetItem("FedEx"))
+        pod_item = QTableWidgetItem("●")
+        pod_item.setData(Qt.UserRole, [str(directory)])
+        self.window.tracking_table.setItem(0, 5, pod_item)
+
+        self.assertFalse(self.window._tracking_table_has_pods())
+        with mock.patch("ui.main_window.move_pod_files") as mover, \
+             mock.patch("ui.main_window.QMessageBox.information") as info:
+            self.window._organize_pods()
+        mover.assert_not_called()
+        self.assertIn("安全忽略 1 个", info.call_args.args[2])
+        self.assertTrue(directory.is_dir())
 
     def test_tracking_overview_updates_carrier_averages_only_when_finished(self):
         self.window._carrier_timings = {

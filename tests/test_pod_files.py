@@ -46,6 +46,36 @@ class PodFileTests(unittest.TestCase):
             self.assertEqual("D:/archive/FedEx/123+.pdf", output.active["C2"].value)
             output.close()
 
+    def test_never_moves_directories_or_non_pdf_source_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "source_A" / "tracking_1"
+            source.mkdir(parents=True)
+            pod = source / "POD.pdf"
+            invoice = source / "invoice.xlsx"
+            fake_pdf_directory = source / "folder.pdf"
+            pod.write_bytes(b"%PDF-pod")
+            invoice.write_bytes(b"invoice")
+            fake_pdf_directory.mkdir()
+
+            result = move_pod_files(
+                [
+                    ("FedEx", str(source)),
+                    ("FedEx", str(fake_pdf_directory)),
+                    ("FedEx", str(invoice)),
+                    ("FedEx", str(pod)),
+                ],
+                root / "archive",
+            )
+
+            self.assertEqual(1, len(result.moved))
+            self.assertEqual(3, len(result.skipped))
+            self.assertTrue(source.is_dir())
+            self.assertTrue(fake_pdf_directory.is_dir())
+            self.assertTrue(invoice.is_file())
+            self.assertFalse(pod.exists())
+            self.assertTrue((root / "archive" / "FedEx" / "POD.pdf").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

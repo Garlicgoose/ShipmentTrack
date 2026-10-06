@@ -52,7 +52,10 @@ def move_pod_files(entries: Iterable[tuple[str, str]], destination) -> PodMoveRe
         if key in seen:
             continue
         seen.add(key)
-        if not source.is_file():
+        # Defense in depth: a POD entry must resolve to an existing PDF file.
+        # Never pass directories (including directories named *.pdf) or other
+        # source documents to shutil.move.
+        if not source.is_file() or source.suffix.casefold() != ".pdf":
             skipped.append(str(source))
             continue
         carrier_dir = root / _safe_folder_name(carrier)
