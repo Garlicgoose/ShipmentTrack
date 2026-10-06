@@ -77,6 +77,8 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("FedEx POD 任务中心操作", readme)
         self.assertIn("结果操作", readme)
         self.assertIn("运行日志", readme)
+        self.assertIn("不会移动、删除或重命名来源文件夹", readme)
+        self.assertIn("工具栏覆盖表格", readme)
         self.assertIn("置顶面板不随主窗口最小化", readme)
         self.assertIn("真实 Microsoft Edge", readme)
         self.assertIn("分别设置 0%–100%", readme)
