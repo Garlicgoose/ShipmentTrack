@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -131,11 +132,18 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(self.page_title)
         self.stack = QStackedWidget()
         self.tracking_page = self._build_tracking_page()
+        self.tracking_page.setMinimumHeight(720)
+        self.tracking_scroll = QScrollArea()
+        self.tracking_scroll.setObjectName("trackingScroll")
+        self.tracking_scroll.setFrameShape(QFrame.NoFrame)
+        self.tracking_scroll.setWidgetResizable(True)
+        self.tracking_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tracking_scroll.setWidget(self.tracking_page)
         self.excel_page = self._build_excel_page()
         self.settings_page = SettingsPage(self.store)
         self.settings_page.saved.connect(self._on_settings_saved)
         self.settings_page.message.connect(self._show_status)
-        self.stack.addWidget(self.tracking_page)
+        self.stack.addWidget(self.tracking_scroll)
         self.stack.addWidget(self.excel_page)
         self.stack.addWidget(self.settings_page)
         content_layout.addWidget(self.stack, 1)
@@ -428,7 +436,10 @@ class MainWindow(QMainWindow):
         self.tracking_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tracking_table.setAlternatingRowColors(False)
         self.tracking_table.setShowGrid(False)
-        self.tracking_table.setMinimumHeight(270)
+        # At the 1080x700 minimum window the results card must be allowed to
+        # shrink without pushing the action bar over the table. At normal and
+        # maximized sizes the stretch below still gives the table the extra room.
+        self.tracking_table.setMinimumHeight(140)
         self.tracking_table.verticalHeader().setVisible(False)
         self.tracking_table.verticalHeader().setDefaultSectionSize(40)
         self.tracking_table.cellClicked.connect(self._handle_tracking_cell_click)
@@ -474,8 +485,8 @@ class MainWindow(QMainWindow):
         self.tracking_log = QPlainTextEdit()
         self.tracking_log.setObjectName("trackingLog")
         self.tracking_log.setReadOnly(True)
-        self.tracking_log.setMinimumHeight(105)
-        self.tracking_log.setMaximumHeight(130)
+        self.tracking_log.setMinimumHeight(80)
+        self.tracking_log.setMaximumHeight(120)
         self.tracking_log.setPlaceholderText("运行日志")
         results_layout.addWidget(self.tracking_log)
         layout.addWidget(results_card, 1)

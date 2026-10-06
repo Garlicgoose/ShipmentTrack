@@ -105,8 +105,8 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual(["更新日志", "检查更新"], popup_buttons)
 
     def test_tracking_page_has_smooth_progress_and_live_table(self):
-        self.assertGreaterEqual(self.window.tracking_table.minimumHeight(), 270)
-        self.assertGreaterEqual(self.window.tracking_log.minimumHeight(), 105)
+        self.assertGreaterEqual(self.window.tracking_table.minimumHeight(), 140)
+        self.assertGreaterEqual(self.window.tracking_log.minimumHeight(), 80)
 
         self.assertEqual(240, self.window._tracking_progress_anim.duration())
         self.window._append_tracking_result({
@@ -157,6 +157,32 @@ class NativeUiTests(unittest.TestCase):
             self.window.tracking_log_title.geometry().bottom(),
             self.window.tracking_log.geometry().top(),
         )
+
+    def test_dense_tracking_table_and_log_never_overlap_at_minimum_size(self):
+        for index in range(45):
+            self.window._append_tracking_result({
+                "运单号": f"54196433{index:04d}",
+                "快递公司": "FedEx",
+                "状态": "In Transit",
+                "抵达时间": "",
+                "用时(秒)": 1.0,
+                "备注": "",
+            })
+            self.window.tracking_log.appendPlainText(f"[{index + 1}/45] 查询记录")
+        self.window.resize(self.window.minimumSize())
+        self.window.show()
+        self.app.processEvents()
+
+        table = self.window.tracking_table.geometry()
+        actions = self.window.tracking_actions_bar.geometry()
+        log_title = self.window.tracking_log_title.geometry()
+        log = self.window.tracking_log.geometry()
+        self.assertLess(table.bottom(), actions.top())
+        self.assertLess(actions.bottom(), log_title.top())
+        self.assertLess(log_title.bottom(), log.top())
+        self.assertGreater(self.window.tracking_table.verticalScrollBar().maximum(), 0)
+        self.assertGreater(self.window.tracking_log.verticalScrollBar().maximum(), 0)
+        self.assertGreater(self.window.tracking_scroll.verticalScrollBar().maximum(), 0)
 
     def test_pod_organizer_ignores_directory_paths_before_move(self):
         directory = Path(self.temp_dir.name) / "4915200930"
