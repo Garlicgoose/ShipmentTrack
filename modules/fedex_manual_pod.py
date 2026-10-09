@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import time
 from urllib.parse import urlparse
 from openpyxl import load_workbook
 
@@ -87,23 +88,61 @@ class ManualFedExPodSession:
     def start(self):
         self.context, self.page = self.controller.start()
 
-    def _find_fedex_page(self):
-        """Follow the page the user opened; never navigate on their behalf."""
-        if self.context is None:
-            return None
+    @staticmethod
+    def _is_live_fedex_tracking_page(page):
+        """Reject closed targets, non-FedEx hosts and unrelated FedEx pages."""
         try:
-            pages = list(self.context.pages)
+            closed = page.is_closed()
+            if isinstance(closed, bool) and closed:
+                return False
         except Exception:
-            return None
-        for page in reversed(pages):
-            try:
-                host = (urlparse(str(page.url)).hostname or "").casefold()
-                if host == "fedex.com" or host.endswith(".fedex.com"):
-                    self.page = page
-                    return page
-            except Exception:
-                continue
-        return None
+            return False
+        try:
+            parsed = urlparse(str(page.url))
+        except Exception:
+            return False
+        host = (parsed.hostname or "").casefold()
+        if host != "fedex.com" and not host.endswith(".fedex.com"):
+            return False
+        location = f"{parsed.path} {parsed.query}".casefold()
+        return "track" in location
+
+    def _available_contexts(self):
+        contexts = []
+        for candidate in (self.context, getattr(self.controller, "context", None)):
+            if candidate is not None and candidate not in contexts:
+                contexts.append(candidate)
+        browser = getattr(self.controller, "browser", None)
+        try:
+            browser_contexts = list(browser.contexts) if browser is not None else []
+        except Exception:
+            browser_contexts = []
+        for candidate in browser_contexts:
+            if candidate not in contexts:
+                contexts.append(candidate)
+        return contexts
+
+    def _find_fedex_page(self, timeout_seconds=0.0):
+        """Rediscover the user's current FedEx target without navigating it."""
+        deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+        while True:
+            matches = []
+            for context in self._available_contexts():
+                try:
+                    pages = list(context.pages)
+                except Exception:
+                    continue
+                for position, page in enumerate(pages):
+                    if self._is_live_fedex_tracking_page(page):
+                        # Prefer a newly opened/rightmost target. If the current
+                        # target is still valid, it remains a safe fallback.
+                        matches.append((position, context, page))
+            if matches:
+                _, self.context, self.page = matches[-1]
+                return self.page
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.05)
 
     def prepare(self, number):
         number = normalize_tracking_number(number)
@@ -114,7 +153,7 @@ class ManualFedExPodSession:
         return number
 
     def main_ready(self, number):
-        page = self._find_fedex_page()
+        page = self._find_fedex_page(timeout_seconds=1.0)
         if page is None:
             return False
         text = _body_text(page)
@@ -128,7 +167,7 @@ class ManualFedExPodSession:
 
     def fill_after_user_click(self, number):
         """Type only after the user actually clicks FedEx's tracking field."""
-        page = self._find_fedex_page()
+        page = self._find_fedex_page(timeout_seconds=1.0)
         if page is None:
             return False
         try:
@@ -168,7 +207,7 @@ class ManualFedExPodSession:
     def save_current(self, number, expected_page, snapshot=None):
         """Inspect once, then save only the expected main or detail page."""
         number = normalize_tracking_number(number)
-        page = self._find_fedex_page()
+        page = self._find_fedex_page(timeout_seconds=2.0)
         if page is None:
             raise RuntimeError("没有找到用户打开的 FedEx 页面")
         text = _body_text(page)
@@ -207,7 +246,7 @@ class ManualFedExPodSession:
         return ManualPageSave("detail", str(detail_pdf))
 
     def detail_ready(self, number, snapshot):
-        page = self._find_fedex_page()
+        page = self._find_fedex_page(timeout_seconds=2.0)
         if page is None:
             return False
         text = _body_text(page)

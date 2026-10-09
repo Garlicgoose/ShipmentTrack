@@ -10,6 +10,12 @@ from units import detect_browser_path
 
 
 class ManualFedExPodTests(unittest.TestCase):
+    @staticmethod
+    def _page(url, *, closed=False):
+        page = mock.Mock(url=url)
+        page.is_closed.return_value = closed
+        return page
+
     @unittest.skipUnless(
         os.environ.get("SHIPMENTTRACK_LIVE_EDGE_TEST") == "1",
         "Run manually with a locally installed Edge browser",
@@ -79,6 +85,54 @@ class ManualFedExPodTests(unittest.TestCase):
             page.click.assert_not_called()
             page.goto.assert_not_called()
             page.evaluate.assert_not_called()
+
+    def test_rediscovers_new_tracking_tab_after_about_blank(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController"):
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            blank = self._page("about:blank")
+            wrong = self._page("https://example.com/tracking")
+            homepage = self._page("https://www.fedex.com/en-us/home.html")
+            tracking = self._page("https://www.fedex.com/en-hk/tracking.html")
+            session.context = mock.Mock(pages=[blank, wrong, homepage, tracking])
+
+            self.assertIs(tracking, session._find_fedex_page())
+            self.assertIs(tracking, session.page)
+
+    def test_closed_old_target_is_replaced_by_new_fedex_target(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController"):
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            old = self._page("https://www.fedex.com/fedextrack/", closed=True)
+            replacement = self._page("https://www.fedex.com/en-cn/tracking.html")
+            session.page = old
+            session.context = mock.Mock(pages=[old, replacement])
+
+            self.assertIs(replacement, session._find_fedex_page())
+
+    def test_refreshes_context_from_live_cdp_browser_contexts(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController") as controller_type:
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            stale = mock.Mock()
+            type(stale).pages = mock.PropertyMock(side_effect=RuntimeError("detached"))
+            live_page = self._page("https://www.fedex.com/fedextrack/?trknbr=123")
+            live_context = mock.Mock(pages=[live_page])
+            controller_type.return_value.browser = mock.Mock(contexts=[live_context])
+            session.context = stale
+
+            self.assertIs(live_page, session._find_fedex_page())
+            self.assertIs(live_context, session.context)
+
+    def test_non_tracking_fedex_page_is_not_bound(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController"):
+            session = manual.ManualFedExPodSession(mock.Mock(), "msedge.exe", "edge", temp_dir)
+            session.context = mock.Mock(pages=[
+                self._page("about:blank"),
+                self._page("https://www.fedex.com/en-us/shipping/ratefinder.html"),
+            ])
+            self.assertIsNone(session._find_fedex_page())
 
     def test_user_chosen_fedex_locale_is_preserved_when_arming_input(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
