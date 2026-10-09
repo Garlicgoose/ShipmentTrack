@@ -41,6 +41,19 @@ class ManualDialogTests(unittest.TestCase):
             self.assertIsNone(dialog.worker)
             dialog.close()
 
+    def test_configured_count_reaches_auto_worker_and_confirmation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            dialog = FedExManualDialog(["541964339019"], folder, auto_batch_limit=25)
+            self.assertIn("25", dialog.auto_button.text())
+            with mock.patch("ui.fedex_manual_dialog.QMessageBox.question", return_value=QMessageBox.Yes) as question, \
+                 mock.patch("ui.fedex_manual_dialog.ExperimentalAutoPodWorker") as worker:
+                dialog.start_auto()
+            self.assertIn("25", question.call_args.args[2])
+            self.assertEqual(25, worker.call_args.kwargs["batch_limit"])
+            worker.return_value.start.assert_called_once()
+            dialog.worker = None
+            dialog.close()
+
     def test_worker_does_not_advance_without_human_query(self):
         with tempfile.TemporaryDirectory() as folder:
             worker = ManualPodWorker(

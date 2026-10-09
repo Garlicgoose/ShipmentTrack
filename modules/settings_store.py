@@ -12,6 +12,7 @@ import unicodedata
 from typing import Iterable, Optional
 
 from units import get_base_path, get_data_path, read_json, write_json
+from modules.fedex_pod_auto import AUTO_BATCH_LIMIT, normalize_batch_limit
 
 
 DEFAULT_POD_AUDIT_RATES = {
@@ -35,6 +36,7 @@ DEFAULT_SETTINGS = {
     "tracking_ei_password": "",
     "fedex_api_key": "",
     "fedex_api_secret": "",
+    "fedex_auto_batch_limit": AUTO_BATCH_LIMIT,
     "chrome_path": "",
     "browser_type": "edge",
     "browser_path": "",
@@ -315,6 +317,7 @@ class SettingsStore:
                 result["browser_type"] = (
                     "edge" if legacy.name.casefold() == "msedge.exe" else "chrome"
                 )
+        result["fedex_auto_batch_limit"] = normalize_batch_limit(result["fedex_auto_batch_limit"])
         return result
 
     def save_settings(self, settings: dict) -> None:
@@ -330,6 +333,7 @@ class SettingsStore:
             carrier: max(0, min(100, int(rates.get(carrier, default))))
             for carrier, default in DEFAULT_POD_AUDIT_RATES.items()
         }
+        safe["fedex_auto_batch_limit"] = normalize_batch_limit(safe["fedex_auto_batch_limit"])
         write_json(self.settings_path, safe)
 
     def load_mappings(self) -> list[FilenameMappingRule]:

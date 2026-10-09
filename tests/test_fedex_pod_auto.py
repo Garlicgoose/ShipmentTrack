@@ -16,7 +16,7 @@ class ExperimentalAutoPodTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def test_batch_is_hard_limited_to_ten(self):
+    def test_configured_batch_can_exceed_ten_and_stops_at_selected_count(self):
         numbers = [f"54196433{index:04d}" for index in range(20)]
         self.queue.add_numbers(numbers)
         session = mock.Mock()
@@ -24,11 +24,12 @@ class ExperimentalAutoPodTests(unittest.TestCase):
             number, True, f"{number}.pdf", f"{number}+.pdf"
         )
         result = run_experimental_auto(
-            self.queue, session, batch_limit=99, interval_seconds=0
+            self.queue, session, batch_limit=15, interval_seconds=0
         )
-        self.assertEqual(AUTO_BATCH_LIMIT, result.processed)
-        self.assertEqual(AUTO_BATCH_LIMIT, result.completed)
-        self.assertEqual(AUTO_BATCH_LIMIT, session.download.call_count)
+        self.assertEqual(15, result.processed)
+        self.assertEqual(15, result.completed)
+        self.assertEqual(15, session.download.call_count)
+        self.assertEqual(5, self.queue.counts()["pending"])
 
     def test_site_block_pauses_current_and_opens_circuit_immediately(self):
         self.queue.add_numbers(["541964339019", "541964339020"])

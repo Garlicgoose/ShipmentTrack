@@ -8,6 +8,7 @@ from typing import Callable
 
 
 AUTO_BATCH_LIMIT = 10
+AUTO_BATCH_MAX = 1000
 AUTO_INTERVAL_SECONDS = 8
 BLOCK_MARKERS = (
     "too many requests",
@@ -38,6 +39,14 @@ def is_site_block(error: object) -> bool:
     return any(marker in message for marker in BLOCK_MARKERS)
 
 
+def normalize_batch_limit(value) -> int:
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        return AUTO_BATCH_LIMIT
+    return min(max(1, number), AUTO_BATCH_MAX)
+
+
 def run_experimental_auto(
     queue,
     session,
@@ -49,10 +58,10 @@ def run_experimental_auto(
     stop_requested: Callable[[], bool] | None = None,
     delay: Callable[[float], None] = time.sleep,
 ) -> ExperimentalAutoRun:
-    """Process at most ten jobs; blocked pages open the circuit immediately."""
+    """Process the configured batch; blocked pages open the circuit immediately."""
     write_log = log or (lambda _message: None)
     stopped = stop_requested or (lambda: False)
-    limit = min(max(1, int(batch_limit)), AUTO_BATCH_LIMIT)
+    limit = normalize_batch_limit(batch_limit)
     processed = completed = paused = consecutive_failures = 0
     circuit_open = False
     reason = ""

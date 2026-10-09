@@ -401,6 +401,20 @@ class NativeUiTests(unittest.TestCase):
             save_settings.call_args.args[0]["fedex_api_secret"],
         )
 
+    def test_fedex_batch_setting_persists_and_rejects_invalid_input(self):
+        page = self.window.settings_page
+        page.fedex_auto_batch_limit.setText("25")
+        page.save()
+        self.assertEqual(25, self.store.load_settings()["fedex_auto_batch_limit"])
+        self.assertEqual(25, self.window.settings["fedex_auto_batch_limit"])
+        for value in ("0", "1001", ""):
+            page.fedex_auto_batch_limit.setText(value)
+            with mock.patch("ui.settings_page.QMessageBox.warning") as warning, \
+                 mock.patch.object(self.store, "save_settings") as save:
+                page.save()
+            warning.assert_called_once()
+            save.assert_not_called()
+
     def test_settings_tabs_split_mapping_status_and_audit_rate_pages(self):
         page = self.window.settings_page
         tabs = page.settings_tabs

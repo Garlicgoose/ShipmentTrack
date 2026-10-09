@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from modules.fedex_manual_pod import ManualFedExPodSession, ManualPodResult
-from modules.fedex_pod_auto import AUTO_BATCH_LIMIT, run_experimental_auto
+from modules.fedex_pod_auto import AUTO_BATCH_LIMIT, normalize_batch_limit, run_experimental_auto
 from modules.fedex_pod_queue import FedExPodQueue
 from modules.fedex_web_pod import FedExEdgePodSession
 from units import detect_browser_path
@@ -157,12 +157,14 @@ class ExperimentalAutoPodWorker(QThread):
     queue_changed = Signal()
     finished_status = Signal(str)
 
-    def __init__(self, queue_path, output_dir, edge_path="", parent=None):
+    def __init__(self, queue_path, output_dir, edge_path="", parent=None,
+                 batch_limit=AUTO_BATCH_LIMIT):
         super().__init__(parent)
         self.queue = FedExPodQueue(queue_path)
         self.output_dir = Path(output_dir)
         self.edge_path = edge_path if Path(str(edge_path)).name.casefold() == "msedge.exe" else ""
         self.stop_event = threading.Event()
+        self.batch_limit = normalize_batch_limit(batch_limit)
 
     def run(self):
         playwright = session = None
@@ -187,6 +189,7 @@ class ExperimentalAutoPodWorker(QThread):
             outcome = run_experimental_auto(
                 self.queue,
                 session,
+                batch_limit=self.batch_limit,
                 log=self.message.emit,
                 completed_callback=completed,
                 stop_requested=self.stop_event.is_set,
@@ -213,7 +216,7 @@ class FedExManualDialog(QDialog):
     queue_finished = Signal()
 
     def __init__(self, numbers, output_dir, browser_type="edge", browser_path="",
-                 parent=None, queue_path=None):
+                 parent=None, queue_path=None, auto_batch_limit=AUTO_BATCH_LIMIT):
         super().__init__(parent)
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
         self.setWindowModality(Qt.NonModal)
@@ -225,6 +228,7 @@ class FedExManualDialog(QDialog):
         self.output_dir = Path(output_dir)
         self.browser_type = browser_type
         self.browser_path = browser_path
+        self.auto_batch_limit = normalize_batch_limit(auto_batch_limit)
         self.queue = FedExPodQueue(queue_path or default_queue_path(output_dir))
         self.queue.add_numbers(self.numbers, source="本次查询结果")
         self.queue.sync_existing_pdfs(self.output_dir)
@@ -243,7 +247,7 @@ class FedExManualDialog(QDialog):
         self.start_button = QPushButton("打开浏览器并开始")
         self.start_button.setObjectName("primaryButton")
         self.start_button.clicked.connect(self.start)
-        self.auto_button = QPushButton(f"实验自动处理（最多 {AUTO_BATCH_LIMIT} 票）")
+        self.auto_button = QPushButton(f"实验自动处理（最多 {self.auto_batch_limit} 票）")
         self.auto_button.clicked.connect(self.start_auto)
         self.import_button = QPushButton("添加 Excel")
         self.import_button.clicked.connect(self.import_excel)
@@ -329,7 +333,7 @@ class FedExManualDialog(QDialog):
         answer = QMessageBox.question(
             self,
             "FedEx 实验自动模式",
-            "该模式默认关闭，每轮最多自动处理 10 票；遇到限流、验证码或连续失败会立即熔断。\n\n"
+            f"该模式默认关闭，本轮最多自动处理 {self.auto_batch_limit} 票；遇到限流、验证码或连续失败会立即熔断。\n\n"
             "是否开始本轮实验自动处理？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
@@ -337,7 +341,8 @@ class FedExManualDialog(QDialog):
         if answer != QMessageBox.Yes:
             return
         self.worker = ExperimentalAutoPodWorker(
-            self.queue.path, self.output_dir, self.browser_path, self
+            self.queue.path, self.output_dir, self.browser_path, self,
+            batch_limit=self.auto_batch_limit,
         )
         self.worker.message.connect(self.log.appendPlainText)
         self.worker.completed.connect(self.completed)
@@ -350,7 +355,7 @@ class FedExManualDialog(QDialog):
         for button in (self.print_button, self.next_button, self.pause_button,
                        self.skip_button, self.retry_button):
             button.setEnabled(False)
-        self.log.appendPlainText("实验自动模式启动；本轮硬限制最多 10 票。")
+        self.log.appendPlainText(f"实验自动模式启动；本轮最多 {self.auto_batch_limit} 票。")
         self.worker.start()
 
     def _set_current(self, number, index, total):

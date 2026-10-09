@@ -26,6 +26,7 @@ from modules.settings_store import (
     FilenameMapper, FilenameMappingRule,
 )
 from modules import fedex_module
+from modules.fedex_pod_auto import AUTO_BATCH_MAX
 from ui.components import PathField
 from ui.workers import TaskWorker
 from units import detect_browser_path, get_resource_path
@@ -72,6 +73,13 @@ class SettingsPage(QWidget):
         credentials_form.addRow("", self.test_fedex_button)
         credentials_form.addRow("EI 账号", self.ei_email)
         credentials_form.addRow("EI 密码", self.ei_password)
+        self.fedex_auto_batch_limit = QLineEdit()
+        self.fedex_auto_batch_limit.setValidator(QIntValidator(1, AUTO_BATCH_MAX, self))
+        self.fedex_auto_batch_limit.setMaxLength(4)
+        self.fedex_auto_batch_limit.setToolTip(
+            "FedEx 实验自动模式每轮处理的运单数量，1–1000；默认 10，遇限流或连续失败仍会停止。"
+        )
+        credentials_form.addRow("FedEx 实验模式单次票数", self.fedex_auto_batch_limit)
         general_layout.addWidget(credentials, 2)
 
         paths = QGroupBox("文件与浏览器")
@@ -283,6 +291,7 @@ class SettingsPage(QWidget):
         self.settings = self.store.load_settings()
         self.fedex_key.setText(self.settings["fedex_api_key"])
         self.fedex_secret.setText(self.settings["fedex_api_secret"])
+        self.fedex_auto_batch_limit.setText(str(self.settings["fedex_auto_batch_limit"]))
         self.ei_email.setText(self.settings["tracking_ei_email"])
         self.ei_password.setText(self.settings["tracking_ei_password"])
         self.tracking_input.set_value(self.settings["tracking_input_file"])
@@ -507,6 +516,10 @@ class SettingsPage(QWidget):
         self._fedex_test_worker = None
 
     def save(self):
+        if not self.fedex_auto_batch_limit.hasAcceptableInput():
+            QMessageBox.warning(self, "ShipmentTrack", "FedEx 实验模式单次票数请输入 1 到 1000 的整数。")
+            self.settings_tabs.setCurrentIndex(0)
+            return
         raw_rules = self.mapping_rules()
         invalid_match = [rule.pattern for rule in raw_rules if rule.match_type not in {
             "contains", "exact", "regex"
@@ -554,6 +567,7 @@ class SettingsPage(QWidget):
         settings.update({
             "fedex_api_key": self.fedex_key.text().strip(),
             "fedex_api_secret": self.fedex_secret.text().strip(),
+            "fedex_auto_batch_limit": int(self.fedex_auto_batch_limit.text()),
             "tracking_ei_email": self.ei_email.text().strip(),
             "tracking_ei_password": self.ei_password.text(),
             "tracking_input_file": self.tracking_input.value(),

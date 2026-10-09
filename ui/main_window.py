@@ -1003,6 +1003,7 @@ class MainWindow(QMainWindow):
             self.settings.get("browser_type", "edge"),
             self.settings.get("browser_path", ""),
             None,
+            auto_batch_limit=self.settings.get("fedex_auto_batch_limit", 10),
         )
         self._fedex_manual_dialog.completed.connect(self._manual_fedex_completed)
         self._fedex_manual_dialog.queue_finished.connect(self._refresh_manual_pod_audit)

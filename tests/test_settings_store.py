@@ -14,6 +14,14 @@ from units import detect_browser_path, detect_chrome_path, write_json
 
 
 class SettingsStoreTests(unittest.TestCase):
+    def test_fedex_batch_defaults_and_bounds_preserve_old_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = SettingsStore(settings_path=Path(folder) / "settings.json")
+            self.assertEqual(10, store.load_settings()["fedex_auto_batch_limit"])
+            for value, expected in ((25, 25), (0, 1), (2000, 1000), ("invalid", 10)):
+                store.save_settings({"fedex_auto_batch_limit": value})
+                self.assertEqual(expected, store.load_settings()["fedex_auto_batch_limit"])
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         root = Path(self.temp_dir.name)
