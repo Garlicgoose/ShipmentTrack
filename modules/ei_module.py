@@ -48,6 +48,54 @@ MONTH_MAP = {
     "december": 12,
 }
 
+EI_STATUS_VALUES = (
+    "Arrived at Final Port",
+    "Arrived Final Port",
+    "Freight Received",
+    "In Transit",
+    "Services Completed",
+    "Completed",
+    "Delivered",
+    "On Time",
+    "Available",
+    "Departed",
+    "Booked",
+    "Exception",
+    "Cancelled",
+    "Canceled",
+)
+
+EI_LABELED_FIELDS_SCRIPT = r"""
+() => {
+  const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const wanted = /^(?:current\s+)?(?:shipment\s+)?status:?$/i;
+  const rows = [];
+  const nodes = document.querySelectorAll(
+    'dt, th, label, [role="rowheader"], [data-testid], [aria-label]'
+  );
+  for (const node of nodes) {
+    const visible = !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
+    if (!visible) continue;
+    const label = clean(node.innerText || node.textContent || node.getAttribute('aria-label'));
+    const testId = clean(node.getAttribute('data-testid'));
+    if (!wanted.test(label) && !/(?:^|[-_])status(?:$|[-_])/i.test(testId)) continue;
+    const candidates = [
+      node.nextElementSibling,
+      node.parentElement && node.parentElement.querySelector('dd, td, [role="cell"], [data-value]'),
+    ];
+    for (const candidate of candidates) {
+      if (!candidate || candidate === node) continue;
+      const value = clean(candidate.innerText || candidate.textContent || candidate.getAttribute('data-value'));
+      if (value && value.toLowerCase() !== label.toLowerCase()) {
+        rows.push({label, value});
+        break;
+      }
+    }
+  }
+  return rows;
+}
+"""
+
 
 def make_result(tracking_number):
     return {
@@ -518,43 +566,55 @@ def open_shipment_details_if_needed(page, tracking_number):
     return wait_for_detail_page(page, tracking_number)
 
 
-def extract_status(page_text):
+def _canonical_status(value):
+    text = normalize_page_text(value)
+    if not text:
+        return ""
+    for status in EI_STATUS_VALUES:
+        if re.search(rf"(?<![A-Za-z]){re.escape(status)}(?![A-Za-z])", text, re.IGNORECASE):
+            return status
+    return ""
+
+
+def extract_labeled_status(page):
+    """Read the value paired with the page's semantic Status label."""
+    try:
+        fields = page.evaluate(EI_LABELED_FIELDS_SCRIPT) or []
+    except Exception:
+        return ""
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        label = normalize_page_text(field.get("label", "")).rstrip(":").casefold()
+        if label in {"status", "current status", "shipment status"} or "status" in label:
+            status = _canonical_status(field.get("value", ""))
+            if status:
+                return status
+    return ""
+
+
+def extract_status(page_text, labeled_status=""):
     if not page_text:
-        return "Unknown"
+        return _canonical_status(labeled_status) or "Unknown"
 
     text = normalize_page_text(page_text)
     text_lower = text.lower()
 
-    # 优先读取详情页头部的 Status: xxx。
-    match = re.search(
-        r"Status:\s*([A-Za-z ]+?)(?=\s+HONG\b|\s+MACAU\b|\s+Data as of\b|\s+Details\b|\s+Events\b|\s+References\b|\s+Shipment Timeline\b|$)",
-        text,
-        re.IGNORECASE,
-    )
-    if match:
-        value = re.sub(r"\s+", " ", match.group(1)).strip()
-        if value:
-            return value
+    semantic_status = _canonical_status(labeled_status)
+    if semantic_status:
+        return semantic_status
 
-    status_keywords = [
-        "Completed",
-        "Delivered",
-        "On Time",
-        "Arrived Final Port",
-        "Arrived at Final Port",
-        "Available",
-        "In Transit",
-        "Departed",
-        "Booked",
-        "Freight Received",
-        "Exception",
-        "Cancelled",
-        "Canceled",
-    ]
-
-    for status in status_keywords:
-        if status.lower() in text_lower:
-            return status
+    # Text fallback is deliberately anchored to a status label. Searching the
+    # whole page would mistake a historical Delivered event for current state.
+    for pattern in (
+        r"(?:Current\s+|Shipment\s+)?Status\s*:\s*(.{1,100}?)(?=\s+(?:Route|Origin|Destination|Data as of|Details|Events|References|Shipment Timeline)\b|$)",
+        r"(?:Current\s+|Shipment\s+)Status\s+(.{1,100}?)(?=\s+(?:Route|Origin|Destination|Data as of|Details|Events|References|Shipment Timeline)\b|$)",
+    ):
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            status = _canonical_status(match.group(1))
+            if status:
+                return status
 
     if "no results" in text_lower or "no shipment" in text_lower:
         return "No result"
@@ -606,11 +666,10 @@ def extract_services_completed_date(page_text):
 
 
 def is_expeditors_delivered(status, page_text):
-    # 你的新规则：只看 status，必须是 Completed 才算抵达。
-    # On Time / Services Completed 空字段，不再算抵达，也不会下载 PDF。
+    # Only the current status field determines delivery; timeline text does not.
     return matches_exact_status(
         status,
-        default_statuses=("Completed",),
+        default_statuses=("Completed", "Delivered"),
         custom_statuses=CUSTOM_DELIVERED_STATUSES,
     )
 
@@ -699,7 +758,7 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
             result["error"] = "Expeditors blocked or captcha"
             return result
 
-        status = extract_status(page_text)
+        status = extract_status(page_text, extract_labeled_status(page))
         result["status"] = status
 
         arrival_time = get_arrival_time(page_text)
