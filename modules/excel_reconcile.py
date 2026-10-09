@@ -15,6 +15,12 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.formula.translate import Translator
 from openpyxl.utils import get_column_letter
 
+from modules.excel_classifier import (
+    BUSINESS_TYPES,
+    classify_business_type,
+    sample_identifiers,
+    structure_fingerprint,
+)
 from modules.settings_store import FilenameMapper, FilenameMappingRule
 
 
@@ -293,6 +299,36 @@ def _xlsx_files(folder: Path, recursive: bool, excluded: set[Path]) -> list[Path
     return files
 
 
+def _build_droplist_reference_cache(folder, mapper, excluded):
+    """Read each reference file once and keep only a small identifier set."""
+    cache = defaultdict(lambda: {category: set() for category in BUSINESS_TYPES})
+    if folder is None:
+        return cache
+    candidates = _xlsx_files(folder, recursive=True, excluded=excluded)
+    for file in candidates:
+        if not file.stem.casefold().startswith("drop shipment list"):
+            continue
+        match = mapper.match(file.name)
+        category = _infer_droplist_category(file, folder, match.target_type)
+        if category not in BUSINESS_TYPES:
+            continue
+        _, date_label = _resolve_date(file, folder)
+        workbook = load_workbook(file, read_only=False, data_only=True)
+        try:
+            for sheet_name in workbook.sheetnames[1:]:
+                source = workbook[sheet_name]
+                if not _is_droplist_data_sheet(source):
+                    continue
+                cache[date_label][category].update(
+                    sample_identifiers(source, header_row=3)
+                )
+                if len(cache[date_label][category]) >= 12:
+                    break
+        finally:
+            workbook.close()
+    return cache
+
+
 def _merge_inspect(
     folder: Path,
     output_sheet,
@@ -300,6 +336,7 @@ def _merge_inspect(
     excluded: set[Path],
     issues: list[tuple[str, str, str]],
     unrecognized_files: list[Path],
+    reference_cache,
 ) -> tuple[
     dict[tuple[str, str], float],
     dict[tuple[str, str, str], float],
@@ -360,12 +397,17 @@ def _merge_inspect(
 
         match = mapper.match(file.name)
         overseas_truck = _is_overseas_truck_filename(file.name)
-        if match.target_type in {"光联", "MPO"}:
-            comparison_type = match.target_type
-        elif overseas_truck:
-            comparison_type = "光联"
-        else:
-            comparison_type = "未识别"
+        _, date_label = _resolve_date(file, folder)
+        filename_category = match.target_type if match.target_type in BUSINESS_TYPES else ""
+        if overseas_truck and not filename_category:
+            filename_category = "光联"
+        decision = classify_business_type(
+            structural_category=structure_fingerprint(source),
+            samples=sample_identifiers(source),
+            references=reference_cache.get(date_label, {}),
+            filename_category=filename_category,
+        )
+        comparison_type = decision.category
 
         display_type = str(match.display_type or "").strip()
         mapping_note = match.note
@@ -375,10 +417,12 @@ def _merge_inspect(
         if overseas_truck and not match.matched:
             mapping_note = "默认规则：国外第…车归类为光联"
 
-        _, date_label = _resolve_date(file, folder)
-        if not match.matched and not overseas_truck:
-            issues.append(("检验表", file.name, match.note))
+        if not decision.confirmed:
+            reason = decision.source
+            issues.append(("检验表", file.name, reason))
             unrecognized_files.append(file)
+        elif decision.source != "文件名辅助规则":
+            mapping_note = f"{mapping_note}；{decision.source}".strip("；")
         if not date_label:
             issues.append(("检验表", file.name, "文件名和父文件夹均无法识别日期"))
 
@@ -635,6 +679,9 @@ def merge_and_reconcile_excel(
     mapper = FilenameMapper(mapping_rules)
     issues: list[tuple[str, str, str]] = []
     unrecognized_files: list[Path] = []
+    reference_cache = _build_droplist_reference_cache(
+        droplist_folder, mapper, excluded
+    )
 
     inspect_workbook = Workbook() if inspect_folder else None
     droplist_workbook = Workbook() if droplist_folder else None
@@ -644,7 +691,8 @@ def merge_and_reconcile_excel(
         inspect_sheet = inspect_workbook.active
         inspect_sheet.title = "合并检验表"
         inspect_totals, display_totals, inspect_files, inspect_rows = _merge_inspect(
-            inspect_folder, inspect_sheet, mapper, excluded, issues, unrecognized_files
+            inspect_folder, inspect_sheet, mapper, excluded, issues,
+            unrecognized_files, reference_cache
         )
     if progress_callback:
         progress_callback(45)

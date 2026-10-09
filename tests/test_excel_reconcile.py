@@ -164,7 +164,11 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual("=F3*2", merged_sheet["G3"].value)
 
     def test_unmatched_files_are_kept_and_reported(self):
-        create_inspect(self.inspect / "9.11 未知客户.xlsx", [7])
+        unknown = self.inspect / "9.11 未知客户.xlsx"
+        create_inspect(unknown, [7])
+        unknown_book = load_workbook(unknown)
+        unknown_book.active["A2"] = "UNKNOWN-ONLY"
+        unknown_book.save(unknown)
         create_droplist(
             self.droplist / "Drop shipment list9.11MPO.xlsx",
             [7],
@@ -343,6 +347,34 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual("CN", merged.cell(3, 8).value)
         self.assertEqual("00FFF2CC", merged.cell(3, 8).fill.fgColor.rgb)
         self.assertTrue(any("已保留全部原始列" in issue[2] for issue in result.issues))
+
+    def test_samples_prevent_bondex_substring_misclassification(self):
+        inspect_file = self.inspect / "9.25 Bondex深圳自提.xlsx"
+        create_inspect(inspect_file, [1])
+        inspect_book = load_workbook(inspect_file)
+        inspect_book.active["A2"] = "MPO-AWB-777"
+        inspect_book.save(inspect_file)
+
+        day = self.droplist / "9.25 MPO"
+        day.mkdir()
+        droplist_file = day / "Drop shipment list.xlsx"
+        create_droplist(droplist_file, [1])
+        droplist_book = load_workbook(droplist_file)
+        droplist_book["Data"]["A4"] = "MPO-AWB-777"
+        droplist_book.save(droplist_file)
+
+        conflicting_rules = self.rules + [
+            FilenameMappingRule("Bondex深圳自提", "光联", display_type="Bondex"),
+            FilenameMappingRule("MPO Bondex深圳自提", "MPO", display_type="Bondex"),
+        ]
+        result = merge_and_reconcile_excel(
+            self.inspect, self.droplist, self.root / "output", conflicting_rules
+        )
+
+        # The content sample says MPO while the shorter filename rule says 光联.
+        # Conflict protection sends the file to review instead of forcing either.
+        self.assertEqual((inspect_file,), result.unrecognized_files)
+        self.assertTrue(any("冲突" in issue[2] for issue in result.issues))
 
 
 if __name__ == "__main__":
