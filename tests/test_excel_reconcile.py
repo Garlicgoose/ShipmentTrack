@@ -177,10 +177,10 @@ class ExcelReconcileTests(unittest.TestCase):
             self.rules,
         )
         self.assertTrue(any(issue[0] == "检验表" for issue in result.issues))
-        self.assertTrue(any(row.target_type == "未识别" for row in result.rows))
-        self.assertTrue(any(issue[0] == "核对" for issue in result.issues))
+        self.assertFalse(any(row.target_type == "未识别" for row in result.rows))
+        self.assertEqual((self.inspect / "9.11 未知客户.xlsx",), result.unrecognized_files)
         summary = load_workbook(result.inspect_output_file)["核对汇总"]
-        self.assertGreaterEqual(summary.column_dimensions["F"].width, 18)
+        self.assertGreaterEqual(summary.column_dimensions["F"].width, 12)
 
         # 第二次运行时不得把第一次输出再次当成输入。
         second = merge_and_reconcile_excel(
@@ -267,15 +267,16 @@ class ExcelReconcileTests(unittest.TestCase):
         ]
         self.assertTrue(any("2026-9-22-MPO" in str(value) for value in source_values))
 
-    def test_droplist_without_mpo_defaults_to_guanglian(self):
+    def test_ambiguous_droplist_is_unrecognized_and_not_counted(self):
         day = self.droplist / "9.23"
         day.mkdir()
         create_droplist(day / "Drop shipment list.xlsx", [4])
         result = merge_and_reconcile_excel(
             None, self.droplist, self.root / "output", self.rules
         )
-        self.assertEqual("2026/9/23", result.rows[0].date)
-        self.assertEqual("光联", result.rows[0].target_type)
+        self.assertEqual((), result.rows)
+        self.assertEqual((day / "Drop shipment list.xlsx",), result.unrecognized_files)
+        self.assertTrue(any("未计入光联或 MPO" in issue[2] for issue in result.issues))
 
     def test_droplist_stops_when_columns_i_to_k_are_empty(self):
         day = self.droplist / "9.24 MPO"

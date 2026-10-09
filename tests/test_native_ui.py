@@ -25,6 +25,7 @@ from PySide6.QtTest import QTest
 
 from modules.settings_store import FilenameMappingRule, SettingsStore
 from ui.main_window import APP_FEATURES, APP_VERSION, MainWindow, PROFILE_AVATAR, PROFILE_NAME
+from ui.unrecognized_files_dialog import UnrecognizedFilesDialog
 
 
 class NativeUiTests(unittest.TestCase):
@@ -529,6 +530,38 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual("", self.window.excel_table.item(0, 4).text())
         self.assertTrue(self.window.open_inspect_output.isEnabled())
         self.assertFalse(self.window.open_droplist_output.isEnabled())
+
+    def test_excel_result_opens_review_dialog_for_unrecognized_files(self):
+        unknown = Path(self.temp_dir.name) / "9.10 unknown.xlsx"
+        result = SimpleNamespace(
+            rows=(), inspect_files=0, droplist_files=0,
+            inspect_rows=0, droplist_rows=0, issues=(),
+            inspect_output_file=None, droplist_output_file=None,
+            unrecognized_files=(unknown,),
+        )
+        with mock.patch("ui.main_window.UnrecognizedFilesDialog") as dialog_type:
+            self.window._show_excel_result(result)
+        dialog_type.assert_called_once_with((unknown,), self.window)
+        dialog_type.return_value.open.assert_called_once()
+
+    def test_unrecognized_dialog_can_copy_names_and_open_selected_folder(self):
+        first = Path(self.temp_dir.name) / "unknown one.xlsx"
+        second = Path(self.temp_dir.name) / "unknown two.xlsx"
+        dialog = UnrecognizedFilesDialog((first, second), self.window)
+        dialog.copy_filenames()
+        self.assertEqual(
+            "unknown one.xlsx\nunknown two.xlsx",
+            QApplication.clipboard().text(),
+        )
+        with mock.patch(
+            "ui.unrecognized_files_dialog.QDesktopServices.openUrl",
+            return_value=True,
+        ) as open_url:
+            self.assertTrue(dialog.open_selected_folder())
+        self.assertEqual(
+            Path(self.temp_dir.name),
+            Path(open_url.call_args.args[0].toLocalFile()),
+        )
 
     def test_parallel_panels_keep_their_own_controls_and_output_paths(self):
         tracking_output = Path(self.temp_dir.name) / "tracking_result.xlsx"

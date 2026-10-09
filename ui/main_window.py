@@ -53,6 +53,7 @@ from ui.components import (
 )
 from ui.settings_page import SettingsPage
 from ui.fedex_manual_dialog import FedExManualDialog
+from ui.unrecognized_files_dialog import UnrecognizedFilesDialog
 from ui.styles import APP_STYLE
 from ui.workers import TaskWorker
 from units import detect_browser_path, get_resource_path
@@ -1164,6 +1165,11 @@ class MainWindow(QMainWindow):
         if result.droplist_output_file:
             self._excel_output_paths["droplist"] = result.droplist_output_file
         self._refresh_output_buttons(1)
+        if getattr(result, "unrecognized_files", ()):
+            self._unrecognized_dialog = UnrecognizedFilesDialog(
+                result.unrecognized_files, self
+            )
+            self._unrecognized_dialog.open()
 
     def _excel_finished(self, ok, error):
         self.excel_run_button.setEnabled(True)

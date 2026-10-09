@@ -42,6 +42,7 @@ class ExcelReconcileResult:
     droplist_rows: int
     rows: tuple[ReconcileRow, ...]
     issues: tuple[tuple[str, str, str], ...]
+    unrecognized_files: tuple[Path, ...] = ()
 
 
 def extract_date_from_name(name: str) -> tuple[tuple[int, int, int], str]:
@@ -263,8 +264,7 @@ def _infer_droplist_category(file: Path, folder: Path, mapped_type: str) -> str:
         return "MPO"
     if mapped_type in {"光联", "MPO"}:
         return mapped_type
-    # Business convention: Droplist without an MPO marker belongs to 光联.
-    return "光联"
+    return "未识别"
 
 
 def _droplist_source_label(file: Path, folder: Path, date: str, category: str) -> str:
@@ -299,6 +299,7 @@ def _merge_inspect(
     mapper: FilenameMapper,
     excluded: set[Path],
     issues: list[tuple[str, str, str]],
+    unrecognized_files: list[Path],
 ) -> tuple[
     dict[tuple[str, str], float],
     dict[tuple[str, str, str], float],
@@ -377,6 +378,7 @@ def _merge_inspect(
         _, date_label = _resolve_date(file, folder)
         if not match.matched and not overseas_truck:
             issues.append(("检验表", file.name, match.note))
+            unrecognized_files.append(file)
         if not date_label:
             issues.append(("检验表", file.name, "文件名和父文件夹均无法识别日期"))
 
@@ -404,8 +406,9 @@ def _merge_inspect(
                     mapping_note,
                 )
                 quantity = _quantity(_safe_value(source, source_row, 6))
-                totals[(date_label, comparison_type)] += quantity
-                display_totals[(date_label, display_type, comparison_type)] += quantity
+                if comparison_type in {"光联", "MPO"}:
+                    totals[(date_label, comparison_type)] += quantity
+                    display_totals[(date_label, display_type, comparison_type)] += quantity
             target_row += 1
             if not empty_row:
                 data_rows += 1
@@ -421,6 +424,7 @@ def _merge_droplist(
     mapper: FilenameMapper,
     excluded: set[Path],
     issues: list[tuple[str, str, str]],
+    unrecognized_files: list[Path],
 ) -> tuple[dict[tuple[str, str], float], int, int]:
     candidates = _xlsx_files(folder, recursive=True, excluded=excluded)
     files = [
@@ -450,6 +454,9 @@ def _merge_droplist(
         )
         if not date_label:
             issues.append(("Droplist", original_relative, "文件名和祖先文件夹均无法识别日期"))
+        if comparison_type not in {"光联", "MPO"}:
+            issues.append(("Droplist", original_relative, "无法确认归总类别；未计入光联或 MPO"))
+            unrecognized_files.append(file)
 
         file_rows = 0
         candidate_sheet_count = 0
@@ -496,9 +503,10 @@ def _merge_droplist(
                     source_label,
                     match.note,
                 )
-                totals[(date_label, comparison_type)] += _quantity(
-                    _safe_value(source, source_row, 6)
-                )
+                if comparison_type in {"光联", "MPO"}:
+                    totals[(date_label, comparison_type)] += _quantity(
+                        _safe_value(source, source_row, 6)
+                    )
                 target_row += 1
                 data_rows += 1
                 file_rows += 1
@@ -528,7 +536,10 @@ def _build_reconcile_rows(
 ) -> tuple[ReconcileRow, ...]:
     rows = []
     keys = sorted(
-        set(inspect_totals) | set(droplist_totals),
+        {
+            key for key in set(inspect_totals) | set(droplist_totals)
+            if key[1] in {"光联", "MPO"}
+        },
         key=lambda item: (_date_sort_key(item[0]), item[1]),
     )
     for date, target_type in keys:
@@ -623,6 +634,7 @@ def merge_and_reconcile_excel(
     }
     mapper = FilenameMapper(mapping_rules)
     issues: list[tuple[str, str, str]] = []
+    unrecognized_files: list[Path] = []
 
     inspect_workbook = Workbook() if inspect_folder else None
     droplist_workbook = Workbook() if droplist_folder else None
@@ -632,7 +644,7 @@ def merge_and_reconcile_excel(
         inspect_sheet = inspect_workbook.active
         inspect_sheet.title = "合并检验表"
         inspect_totals, display_totals, inspect_files, inspect_rows = _merge_inspect(
-            inspect_folder, inspect_sheet, mapper, excluded, issues
+            inspect_folder, inspect_sheet, mapper, excluded, issues, unrecognized_files
         )
     if progress_callback:
         progress_callback(45)
@@ -640,7 +652,7 @@ def merge_and_reconcile_excel(
         droplist_sheet = droplist_workbook.active
         droplist_sheet.title = "合并Droplist"
         droplist_totals, droplist_files, droplist_rows = _merge_droplist(
-            droplist_folder, droplist_sheet, mapper, excluded, issues
+            droplist_folder, droplist_sheet, mapper, excluded, issues, unrecognized_files
         )
     if progress_callback:
         progress_callback(80)
@@ -701,4 +713,5 @@ def merge_and_reconcile_excel(
         droplist_rows=droplist_rows,
         rows=rows,
         issues=tuple(issues),
+        unrecognized_files=tuple(dict.fromkeys(unrecognized_files)),
     )
