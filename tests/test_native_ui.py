@@ -145,15 +145,18 @@ class NativeUiTests(unittest.TestCase):
         )
         self.assertEqual("一键整理 POD", self.window.organize_pods_button.text())
 
-    def test_tracking_actions_and_log_have_separate_rows(self):
+    def test_tracking_actions_use_a_fixed_right_sidebar(self):
         self.window.show()
         self.app.processEvents()
         self.assertEqual("结果操作", self.window.tracking_actions_title.text())
         self.assertEqual("运行日志", self.window.tracking_log_title.text())
-        self.assertLess(
-            self.window.tracking_actions_bar.geometry().bottom(),
-            self.window.tracking_log_title.geometry().top(),
-        )
+        table_right = self.window.tracking_table.mapToGlobal(
+            self.window.tracking_table.rect().bottomRight()
+        ).x()
+        actions_left = self.window.tracking_actions_bar.mapToGlobal(
+            self.window.tracking_actions_bar.rect().topLeft()
+        ).x()
+        self.assertLess(table_right, actions_left)
         self.assertLess(
             self.window.tracking_log_title.geometry().bottom(),
             self.window.tracking_log.geometry().top(),
@@ -175,15 +178,31 @@ class NativeUiTests(unittest.TestCase):
         self.app.processEvents()
 
         table = self.window.tracking_table.geometry()
-        actions = self.window.tracking_actions_bar.geometry()
         log_title = self.window.tracking_log_title.geometry()
         log = self.window.tracking_log.geometry()
-        self.assertLess(table.bottom(), actions.top())
-        self.assertLess(actions.bottom(), log_title.top())
+        self.assertTrue(self.window._tracking_actions_collapsed)
+        self.assertEqual(58, self.window.tracking_actions_bar.width())
         self.assertLess(log_title.bottom(), log.top())
         self.assertGreater(self.window.tracking_table.verticalScrollBar().maximum(), 0)
         self.assertGreater(self.window.tracking_log.verticalScrollBar().maximum(), 0)
         self.assertGreater(self.window.tracking_scroll.verticalScrollBar().maximum(), 0)
+
+    def test_tracking_action_sidebar_can_be_collapsed_without_overlay(self):
+        self.window.resize(1380, 880)
+        self.window.show()
+        self.app.processEvents()
+        self.assertFalse(self.window._tracking_actions_collapsed)
+        self.window.tracking_actions_toggle.click()
+        self.app.processEvents()
+        self.assertTrue(self.window._tracking_actions_collapsed)
+        self.assertFalse(self.window.open_tracking_result.isVisible())
+        table_right = self.window.tracking_table.mapToGlobal(
+            self.window.tracking_table.rect().bottomRight()
+        ).x()
+        actions_left = self.window.tracking_actions_bar.mapToGlobal(
+            self.window.tracking_actions_bar.rect().topLeft()
+        ).x()
+        self.assertLess(table_right, actions_left)
 
     def test_pod_organizer_ignores_directory_paths_before_move(self):
         directory = Path(self.temp_dir.name) / "4915200930"

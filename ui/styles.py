@@ -26,6 +26,12 @@ QFrame#averageCard {
     border: 1px solid #E1E9EE;
     border-radius: 9px;
 }
+QFrame#trackingActionsBar {
+    background: white;
+    border: 1px solid #DDE6ED;
+    border-radius: 12px;
+}
+QFrame#trackingActionsBar QPushButton { text-align: left; }
 QLabel#averageCarrier { color: #708294; font-size: 11px; }
 QLabel#averageValue { color: #173F5F; font-size: 16px; font-weight: 700; }
 

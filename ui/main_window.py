@@ -392,6 +392,11 @@ class MainWindow(QMainWindow):
         self._tracking_progress_anim = self._make_progress_animation(self.tracking_progress)
         layout.addWidget(query_card)
 
+        results_shell = QWidget()
+        results_shell_layout = QHBoxLayout(results_shell)
+        results_shell_layout.setContentsMargins(0, 0, 0, 0)
+        results_shell_layout.setSpacing(14)
+
         results_card = QFrame()
         results_card.setObjectName("card")
         results_layout = QVBoxLayout(results_card)
@@ -437,6 +442,8 @@ class MainWindow(QMainWindow):
         self.tracking_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tracking_table.setAlternatingRowColors(False)
         self.tracking_table.setShowGrid(False)
+        self.tracking_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tracking_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         # At the 1080x700 minimum window the results card must be allowed to
         # shrink without pushing the action bar over the table. At normal and
         # maximized sizes the stretch below still gives the table the extra room.
@@ -450,15 +457,36 @@ class MainWindow(QMainWindow):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(6, QHeaderView.Stretch)
         results_layout.addWidget(self.tracking_table, 1)
-        self.tracking_actions_bar = QWidget()
+        self.tracking_log_title = QLabel("运行日志")
+        self.tracking_log_title.setObjectName("muted")
+        results_layout.addWidget(self.tracking_log_title)
+        self.tracking_log = QPlainTextEdit()
+        self.tracking_log.setObjectName("trackingLog")
+        self.tracking_log.setReadOnly(True)
+        self.tracking_log.setMinimumHeight(80)
+        self.tracking_log.setMaximumHeight(120)
+        self.tracking_log.setPlaceholderText("运行日志")
+        results_layout.addWidget(self.tracking_log)
+        results_shell_layout.addWidget(results_card, 1)
+
+        self.tracking_actions_bar = QFrame()
         self.tracking_actions_bar.setObjectName("trackingActionsBar")
-        actions_layout = QHBoxLayout(self.tracking_actions_bar)
-        actions_layout.setContentsMargins(0, 2, 0, 2)
+        self.tracking_actions_bar.setMinimumWidth(190)
+        self.tracking_actions_bar.setMaximumWidth(220)
+        actions_layout = QVBoxLayout(self.tracking_actions_bar)
+        actions_layout.setContentsMargins(14, 14, 14, 14)
         actions_layout.setSpacing(10)
         self.tracking_actions_title = QLabel("结果操作")
-        self.tracking_actions_title.setObjectName("muted")
+        self.tracking_actions_title.setObjectName("sectionTitle")
         actions_layout.addWidget(self.tracking_actions_title)
-        actions_layout.addStretch(1)
+        self.tracking_actions_toggle = QPushButton("收起")
+        self.tracking_actions_toggle.setObjectName("smallButton")
+        self.tracking_actions_toggle.clicked.connect(
+            lambda: self._set_tracking_actions_collapsed(
+                not self._tracking_actions_collapsed, manual=True
+            )
+        )
+        actions_layout.addWidget(self.tracking_actions_toggle)
         self.open_tracking_result = OpenFileButton("打开结果")
         self.open_cleaned_result = OpenFileButton("打开清洗文件")
         self.open_pod_audit = OpenFileButton("打开 POD 抽查")
@@ -478,20 +506,50 @@ class MainWindow(QMainWindow):
         actions_layout.addWidget(self.open_pod_audit)
         actions_layout.addWidget(self.organize_pods_button)
         actions_layout.addWidget(self.open_fedex_manual)
-        results_layout.addWidget(self.tracking_actions_bar)
-        results_layout.addSpacing(4)
-        self.tracking_log_title = QLabel("运行日志")
-        self.tracking_log_title.setObjectName("muted")
-        results_layout.addWidget(self.tracking_log_title)
-        self.tracking_log = QPlainTextEdit()
-        self.tracking_log.setObjectName("trackingLog")
-        self.tracking_log.setReadOnly(True)
-        self.tracking_log.setMinimumHeight(80)
-        self.tracking_log.setMaximumHeight(120)
-        self.tracking_log.setPlaceholderText("运行日志")
-        results_layout.addWidget(self.tracking_log)
-        layout.addWidget(results_card, 1)
+        actions_layout.addStretch(1)
+        self._tracking_action_widgets = (
+            self.tracking_actions_title,
+            self.open_tracking_result,
+            self.open_cleaned_result,
+            self.open_pod_audit,
+            self.organize_pods_button,
+            self.open_fedex_manual,
+        )
+        self._tracking_actions_collapsed = False
+        self._tracking_actions_manual = False
+        self._tracking_actions_last_width = 0
+        results_shell_layout.addWidget(self.tracking_actions_bar, 0)
+        layout.addWidget(results_shell, 1)
         return page
+
+    def _set_tracking_actions_collapsed(self, collapsed, manual=False):
+        self._tracking_actions_collapsed = bool(collapsed)
+        if manual:
+            self._tracking_actions_manual = True
+        for widget in self._tracking_action_widgets:
+            widget.setVisible(not self._tracking_actions_collapsed)
+        self.tracking_actions_toggle.setText(
+            "操作" if self._tracking_actions_collapsed else "收起"
+        )
+        if self._tracking_actions_collapsed:
+            self.tracking_actions_bar.setFixedWidth(58)
+        else:
+            self.tracking_actions_bar.setMinimumWidth(190)
+            self.tracking_actions_bar.setMaximumWidth(220)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not hasattr(self, "tracking_actions_bar"):
+            return
+        if self.width() == self._tracking_actions_last_width:
+            return
+        self._tracking_actions_last_width = self.width()
+        narrow = self.width() < 1220
+        # A resize resets the responsive state; the user can still toggle it
+        # afterwards without any overlay being introduced.
+        if narrow != self._tracking_actions_collapsed:
+            self._tracking_actions_manual = False
+            self._set_tracking_actions_collapsed(narrow)
 
     def _build_excel_page(self):
         page = QWidget()
