@@ -144,7 +144,7 @@ class ExcelReconcileTests(unittest.TestCase):
         inspect_rows = list(workbook["合并检验表"].iter_rows(min_row=2, values_only=True))
         guanglian = next(row for row in inspect_rows if row[7] == "澳车")
         self.assertEqual("光联", guanglian[8])
-        self.assertEqual("光联业务", guanglian[11])
+        self.assertIn("光联业务", guanglian[11])
         self.assertFalse(workbook["核对汇总"].sheet_view.showGridLines)
         self.assertGreaterEqual(workbook["核对汇总"].column_dimensions["F"].width, 12)
         self.assertEqual("#,##0", workbook["核对汇总"].cell(2, 3).number_format)
@@ -217,7 +217,7 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual("一致", row.result)
         self.assertFalse(any(issue[1] == source.name for issue in result.issues))
         merged = load_workbook(result.inspect_output_file)["合并检验表"]
-        self.assertEqual("光联", merged.cell(2, 8).value)
+        self.assertEqual("国外出货第6车", merged.cell(2, 8).value)
         self.assertEqual("光联", merged.cell(2, 9).value)
         self.assertEqual(2, merged.max_row)
 
@@ -352,6 +352,7 @@ class ExcelReconcileTests(unittest.TestCase):
         inspect_file = self.inspect / "9.25 Bondex深圳自提.xlsx"
         create_inspect(inspect_file, [1])
         inspect_book = load_workbook(inspect_file)
+        inspect_book.active["A1"] = "AWB"
         inspect_book.active["A2"] = "MPO-AWB-777"
         inspect_book.save(inspect_file)
 
@@ -360,7 +361,9 @@ class ExcelReconcileTests(unittest.TestCase):
         droplist_file = day / "Drop shipment list.xlsx"
         create_droplist(droplist_file, [1])
         droplist_book = load_workbook(droplist_file)
-        droplist_book["Data"]["A4"] = "MPO-AWB-777"
+        droplist_book["Data"]["A3"] = "S/O"
+        droplist_book["Data"]["B3"] = "AWB"
+        droplist_book["Data"]["B4"] = "MPO-AWB-777"
         droplist_book.save(droplist_file)
 
         conflicting_rules = self.rules + [
@@ -371,10 +374,42 @@ class ExcelReconcileTests(unittest.TestCase):
             self.inspect, self.droplist, self.root / "output", conflicting_rules
         )
 
-        # The content sample says MPO while the shorter filename rule says 光联.
-        # Conflict protection sends the file to review instead of forcing either.
-        self.assertEqual((inspect_file,), result.unrecognized_files)
-        self.assertTrue(any("冲突" in issue[2] for issue in result.issues))
+        self.assertEqual((), result.unrecognized_files)
+        self.assertEqual("MPO", result.rows[0].target_type)
+        self.assertEqual("一致", result.rows[0].result)
+
+    def test_full_droplist_index_classifies_new_subtype_and_is_loaded_once(self):
+        from unittest import mock
+        from modules import excel_reconcile as reconcile
+        inspect_file = self.inspect / "9.26 新承运业务.xlsx"
+        create_inspect(inspect_file, [2])
+        book = load_workbook(inspect_file)
+        book.active["A1"] = "运单号"
+        book.active["A2"] = "541964330029"
+        book.save(inspect_file)
+        day = self.droplist / "9.26 MPO"
+        day.mkdir()
+        drop_file = day / "Drop shipment list.xlsx"
+        create_droplist(drop_file, [1] * 30)
+        book = load_workbook(drop_file)
+        sheet = book["Data"]
+        sheet["B3"] = "AWB"
+        for index in range(30):
+            sheet.cell(index + 4, 2, f"54196433{index:04}")
+        book.save(drop_file)
+        with mock.patch.object(reconcile, "load_workbook", wraps=load_workbook) as loader:
+            result = merge_and_reconcile_excel(
+                self.inspect, self.droplist, self.root / "output", self.rules
+            )
+        self.assertEqual(1, sum(Path(call.args[0]) == drop_file for call in loader.call_args_list))
+        self.assertEqual((), result.unrecognized_files)
+        self.assertEqual("MPO", result.rows[0].target_type)
+        self.assertEqual(-28, result.rows[0].difference)
+        self.assertEqual("不一致", result.rows[0].result)
+        merged = load_workbook(result.inspect_output_file)
+        self.assertEqual("新承运业务", merged["合并检验表"].cell(2, 8).value)
+        self.assertIn(("2026/9/26", "新承运业务", 2, "MPO"),
+                      list(merged["类型箱数"].iter_rows(min_row=2, values_only=True)))
 
 
 if __name__ == "__main__":

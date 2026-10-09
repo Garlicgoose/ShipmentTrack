@@ -21,15 +21,14 @@ class ExcelClassifierTests(unittest.TestCase):
         self.assertEqual("MPO", decision.category)
         self.assertEqual("工作表结构", decision.source)
 
-    def test_reference_sample_overrides_filename_but_conflict_is_not_forced(self):
+    def test_reference_sample_overrides_conflicting_filename(self):
         decision = classify_business_type(
             samples=("AWB-002",),
             references={"光联": {"awb001"}, "MPO": {"awb002"}},
             filename_category="光联",
         )
-        self.assertFalse(decision.confirmed)
-        self.assertTrue(decision.conflict)
-        self.assertIn("冲突", decision.source)
+        self.assertTrue(decision.confirmed)
+        self.assertEqual("MPO", decision.category)
 
     def test_unique_reference_match_confirms_category(self):
         decision = classify_business_type(
@@ -56,6 +55,21 @@ class ExcelClassifierTests(unittest.TestCase):
         sheet["A1"] = "Business Unit"
         sheet["B1"] = "MPO"
         self.assertEqual("MPO", structure_fingerprint(sheet))
+
+    def test_mixed_shipments_never_use_majority_or_filename_to_force_category(self):
+        decision = classify_business_type(
+            samples=("111111", "222222", "333333"),
+            references={"光联": {"111111", "222222"}, "MPO": {"333333"}},
+            filename_category="光联",
+        )
+        self.assertTrue(decision.conflict)
+        self.assertFalse(decision.confirmed)
+
+    def test_sales_orders_are_not_tracking_numbers(self):
+        sheet = Workbook().active
+        sheet.append(("S/O", "QTY"))
+        sheet.append(("SHARED-SO", 1))
+        self.assertEqual((), sample_identifiers(sheet))
 
 
 if __name__ == "__main__":

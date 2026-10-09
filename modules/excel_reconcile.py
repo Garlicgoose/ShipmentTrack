@@ -18,6 +18,8 @@ from openpyxl.utils import get_column_letter
 from modules.excel_classifier import (
     BUSINESS_TYPES,
     classify_business_type,
+    identifier_columns,
+    normalize_identifier,
     sample_identifiers,
     structure_fingerprint,
 )
@@ -299,34 +301,14 @@ def _xlsx_files(folder: Path, recursive: bool, excluded: set[Path]) -> list[Path
     return files
 
 
-def _build_droplist_reference_cache(folder, mapper, excluded):
-    """Read each reference file once and keep only a small identifier set."""
-    cache = defaultdict(lambda: {category: set() for category in BUSINESS_TYPES})
-    if folder is None:
-        return cache
-    candidates = _xlsx_files(folder, recursive=True, excluded=excluded)
-    for file in candidates:
-        if not file.stem.casefold().startswith("drop shipment list"):
-            continue
-        match = mapper.match(file.name)
-        category = _infer_droplist_category(file, folder, match.target_type)
-        if category not in BUSINESS_TYPES:
-            continue
-        _, date_label = _resolve_date(file, folder)
-        workbook = load_workbook(file, read_only=False, data_only=True)
-        try:
-            for sheet_name in workbook.sheetnames[1:]:
-                source = workbook[sheet_name]
-                if not _is_droplist_data_sheet(source):
-                    continue
-                cache[date_label][category].update(
-                    sample_identifiers(source, header_row=3)
-                )
-                if len(cache[date_label][category]) >= 12:
-                    break
-        finally:
-            workbook.close()
-    return cache
+def _inspection_subtype(file, mapped_name):
+    if mapped_name and mapped_name != "未识别":
+        return mapped_name
+    name = re.sub(
+        r"^\s*(?:(?:20\d{2})[./_-])?\d{1,2}[./_-]\d{1,2}\s*", "", file.stem
+    )
+    name = re.sub(r"^\s*(?:MPO|光联)\s*", "", name, flags=re.I)
+    return name.strip(" _—-") or file.stem
 
 
 def _merge_inspect(
@@ -409,11 +391,8 @@ def _merge_inspect(
         )
         comparison_type = decision.category
 
-        display_type = str(match.display_type or "").strip()
+        display_type = _inspection_subtype(file, str(match.display_type or "").strip())
         mapping_note = match.note
-        if overseas_truck and (not match.matched or display_type in {"", "未识别"}):
-            # “国外第…车”没有配置类型时，默认属于光联。
-            display_type = "光联"
         if overseas_truck and not match.matched:
             mapping_note = "默认规则：国外第…车归类为光联"
 
@@ -421,8 +400,10 @@ def _merge_inspect(
             reason = decision.source
             issues.append(("检验表", file.name, reason))
             unrecognized_files.append(file)
-        elif decision.source != "文件名辅助规则":
-            mapping_note = f"{mapping_note}；{decision.source}".strip("；")
+        else:
+            mapping_note = f"{mapping_note}；{decision.source}（置信度 {decision.confidence:.0%}）".strip("；")
+            if filename_category and filename_category != comparison_type:
+                mapping_note += "；文件名总类型已按 Droplist 运单更正"
         if not date_label:
             issues.append(("检验表", file.name, "文件名和父文件夹均无法识别日期"))
 
@@ -469,6 +450,7 @@ def _merge_droplist(
     excluded: set[Path],
     issues: list[tuple[str, str, str]],
     unrecognized_files: list[Path],
+    reference_cache,
 ) -> tuple[dict[tuple[str, str], float], int, int]:
     candidates = _xlsx_files(folder, recursive=True, excluded=excluded)
     files = [
@@ -513,6 +495,7 @@ def _merge_droplist(
                 continue
             candidate_sheet_count += 1
             max_column = source.max_column
+            tracking_columns = identifier_columns(source, header_row=3)
             _copy_column_layout(source, output_sheet, max_column)
             row_map = {}
             if not fixed_columns:
@@ -548,6 +531,11 @@ def _merge_droplist(
                     match.note,
                 )
                 if comparison_type in {"光联", "MPO"}:
+                    if date_label:
+                        for column in tracking_columns:
+                            identifier = normalize_identifier(_safe_value(source, source_row, column))
+                            if len(identifier) >= 3:
+                                reference_cache[date_label][comparison_type].add(identifier)
                     totals[(date_label, comparison_type)] += _quantity(
                         _safe_value(source, source_row, 6)
                     )
@@ -679,14 +667,19 @@ def merge_and_reconcile_excel(
     mapper = FilenameMapper(mapping_rules)
     issues: list[tuple[str, str, str]] = []
     unrecognized_files: list[Path] = []
-    reference_cache = _build_droplist_reference_cache(
-        droplist_folder, mapper, excluded
-    )
+    reference_cache = defaultdict(lambda: {category: set() for category in BUSINESS_TYPES})
 
     inspect_workbook = Workbook() if inspect_folder else None
     droplist_workbook = Workbook() if droplist_folder else None
     inspect_totals, display_totals, inspect_files, inspect_rows = {}, {}, 0, 0
     droplist_totals, droplist_files, droplist_rows = {}, 0, 0
+    if droplist_workbook is not None:
+        droplist_sheet = droplist_workbook.active
+        droplist_sheet.title = "合并Droplist"
+        droplist_totals, droplist_files, droplist_rows = _merge_droplist(
+            droplist_folder, droplist_sheet, mapper, excluded, issues,
+            unrecognized_files, reference_cache
+        )
     if inspect_workbook is not None:
         inspect_sheet = inspect_workbook.active
         inspect_sheet.title = "合并检验表"
@@ -696,12 +689,6 @@ def merge_and_reconcile_excel(
         )
     if progress_callback:
         progress_callback(45)
-    if droplist_workbook is not None:
-        droplist_sheet = droplist_workbook.active
-        droplist_sheet.title = "合并Droplist"
-        droplist_totals, droplist_files, droplist_rows = _merge_droplist(
-            droplist_folder, droplist_sheet, mapper, excluded, issues, unrecognized_files
-        )
     if progress_callback:
         progress_callback(80)
 
