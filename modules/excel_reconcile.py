@@ -302,7 +302,7 @@ def _xlsx_files(folder: Path, recursive: bool, excluded: set[Path]) -> list[Path
 
 
 def _inspection_subtype(file, mapped_name):
-    if mapped_name and mapped_name != "未识别":
+    if mapped_name and mapped_name not in {"未识别", *BUSINESS_TYPES}:
         return mapped_name
     name = re.sub(
         r"^\s*(?:(?:20\d{2})[./_-])?\d{1,2}[./_-]\d{1,2}\s*", "", file.stem

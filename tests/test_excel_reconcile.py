@@ -411,6 +411,14 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertIn(("2026/9/26", "新承运业务", 2, "MPO"),
                       list(merged["类型箱数"].iter_rows(min_row=2, values_only=True)))
 
+    def test_generic_mpo_rule_does_not_replace_new_detailed_business_name(self):
+        source = self.inspect / "9.27 MPO Bondex深圳自提.xlsx"
+        create_inspect(source, [3])
+        result = merge_and_reconcile_excel(self.inspect, None, self.root / "output", self.rules)
+        merged = load_workbook(result.inspect_output_file)["合并检验表"]
+        self.assertEqual("Bondex深圳自提", merged.cell(2, 8).value)
+        self.assertEqual("MPO", merged.cell(2, 9).value)
+
 
 if __name__ == "__main__":
     unittest.main()
