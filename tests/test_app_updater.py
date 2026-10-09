@@ -93,21 +93,21 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v17(self):
+    def test_in_app_changelog_reflects_v18(self):
         self.assertEqual(
             (
-                "FedEx POD 任务使用本地持久队列，程序或浏览器关闭后可以续做",
-                "半自动模式改为按钮触发保存，下一票只复制单号，不自动切换网页",
-                "新增默认关闭的受限全自动实验模式，每轮最多 10 票并在限流时熔断",
-                "跟踪页将结果操作与运行日志分区显示",
+                "检验表按当天 Droplist 完整运单索引确定光联/MPO，独立保留细分业务名称",
+                "每日数量核对帮助发现漏合并文件，未识别文件提供复制和打开目录清单",
+                "设置可调整 FedEx 实验模式单次票数（1–1000，默认 10），保留限流熔断",
+                "修复 EI 状态解析、FedEx 标签恢复，并将结果操作移至可折叠右侧栏",
             ),
             app_updater.CURRENT_CHANGELOG,
         )
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.7")[1].split("## 1.6")[0]
-        for note in app_updater.CURRENT_CHANGELOG:
+        section = changelog.split("## 1.8")[1].split("## 1.7")[0]
+        for note in ("完整运单索引", "细分名称", "单次票数", "1–1000", "右侧", "EI"):
             self.assertIn(note, section)
 
 
