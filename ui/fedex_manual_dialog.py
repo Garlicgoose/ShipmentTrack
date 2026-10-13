@@ -52,6 +52,7 @@ class ManualPodWorker(QThread):
         self.print_event = threading.Event()
         self.next_event = threading.Event()
         self.pause_event = threading.Event()
+        self.open_site_event = threading.Event()
 
     def _process(self, session, task):
         number = task.number
@@ -80,6 +81,13 @@ class ManualPodWorker(QThread):
                 self.retry_event.clear()
                 session.prepare(number)
                 self.message.emit("已重新准备当前票；队列阶段和已保存 PDF 保持不变。")
+            if self.open_site_event.is_set():
+                self.open_site_event.clear()
+                try:
+                    session.open_tracking_site()
+                    self.message.emit("已在受控浏览器中打开并连接 FedEx Tracking。")
+                except Exception as exc:
+                    self.message.emit(f"重新连接 FedEx 官网失败：{exc}")
             if self.print_event.is_set():
                 self.print_event.clear()
                 try:
@@ -133,6 +141,9 @@ class ManualPodWorker(QThread):
             session = ManualFedExPodSession(
                 playwright, path, self.browser_type, self.output_dir, self.message.emit
             )
+            session.start()
+            session.open_tracking_site()
+            self.message.emit("已在受控浏览器中打开 FedEx Tracking；请只操作这个窗口。")
             while not self.stop_event.is_set():
                 task = self.queue.next_ready()
                 if task is None:
@@ -253,7 +264,10 @@ class FedExManualDialog(QDialog):
         self.import_button.clicked.connect(self.import_excel)
         self.copy_button = QPushButton("复制当前单号")
         self.copy_button.clicked.connect(self.copy_current)
-        for button in (self.start_button, self.auto_button, self.import_button, self.copy_button):
+        self.connect_site_button = QPushButton("重新连接官网")
+        self.connect_site_button.clicked.connect(self.open_tracking_site)
+        for button in (self.start_button, self.auto_button, self.import_button,
+                       self.copy_button, self.connect_site_button):
             source_controls.addWidget(button)
         layout.addLayout(source_controls)
 
@@ -405,6 +419,10 @@ class FedExManualDialog(QDialog):
     def retry(self):
         if self.worker and self.worker.isRunning():
             self.worker.retry_event.set()
+
+    def open_tracking_site(self):
+        if isinstance(self.worker, ManualPodWorker) and self.worker.isRunning():
+            self.worker.open_site_event.set()
 
     def pause_current(self):
         if self.worker and self.worker.isRunning():

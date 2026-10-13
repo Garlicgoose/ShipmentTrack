@@ -86,6 +86,38 @@ class ManualFedExPodTests(unittest.TestCase):
             page.goto.assert_not_called()
             page.evaluate.assert_not_called()
 
+    def test_open_tracking_site_navigates_controlled_blank_page(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController") as controller_type:
+            page = self._page("about:blank")
+            page.is_closed.return_value = False
+            context = mock.Mock(pages=[page])
+            controller_type.return_value.start.return_value = (context, page)
+            session = manual.ManualFedExPodSession(
+                mock.Mock(), "msedge.exe", "edge", temp_dir
+            )
+            session.start()
+            session.open_tracking_site()
+            page.goto.assert_called_once_with(
+                manual.TRACKING_PAGE, wait_until="domcontentloaded", timeout=60_000
+            )
+            page.bring_to_front.assert_called_once()
+
+    def test_open_tracking_site_reuses_existing_controlled_tracking_page(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(manual, "RealBrowserController"):
+            session = manual.ManualFedExPodSession(
+                mock.Mock(), "msedge.exe", "edge", temp_dir
+            )
+            blank = self._page("about:blank")
+            tracking = self._page("https://www.fedex.com/en-cn/tracking.html")
+            session.page = blank
+            session.context = mock.Mock(pages=[blank, tracking])
+            self.assertEqual(str(tracking.url), session.open_tracking_site())
+            blank.goto.assert_not_called()
+            tracking.goto.assert_not_called()
+            tracking.bring_to_front.assert_called_once()
+
     def test_rediscovers_new_tracking_tab_after_about_blank(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
              mock.patch.object(manual, "RealBrowserController"):

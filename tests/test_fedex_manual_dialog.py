@@ -105,3 +105,16 @@ class ManualDialogTests(unittest.TestCase):
                 self.assertEqual("stop", worker._process(session, worker.queue.next_ready()))
             session.page.goto.assert_not_called()
             self.assertEqual("pending", worker.queue.get("541964339019").state)
+
+    def test_reconnect_event_opens_site_only_when_user_requests_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker = ManualPodWorker(
+                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.json")
+            )
+            session = mock.Mock()
+            worker.open_site_event.set()
+            with mock.patch(
+                "ui.fedex_manual_dialog.time.sleep", side_effect=lambda _: worker.stop_event.set()
+            ):
+                self.assertEqual("stop", worker._process(session, worker.queue.next_ready()))
+            session.open_tracking_site.assert_called_once_with()

@@ -17,6 +17,7 @@ from modules.fedex_web_pod import (
     is_valid_pdf,
     normalize_tracking_number,
     output_paths,
+    TRACKING_PAGE,
 )
 from modules.real_browser import RealBrowserController
 from units import get_data_path
@@ -87,6 +88,33 @@ class ManualFedExPodSession:
 
     def start(self):
         self.context, self.page = self.controller.start()
+
+    def open_tracking_site(self):
+        """Open FedEx Tracking inside the browser context owned by the app.
+
+        A page opened in the user's unrelated everyday browser cannot be seen
+        through this CDP connection. Opening it here guarantees that later
+        click-to-fill and print actions bind to the same controlled context.
+        """
+        if self.context is None:
+            self.start()
+        page = self._find_fedex_page()
+        if page is None:
+            candidate = self.page
+            try:
+                if candidate is None or candidate.is_closed():
+                    candidate = self.context.new_page()
+            except Exception:
+                candidate = self.context.new_page()
+            candidate.goto(TRACKING_PAGE, wait_until="domcontentloaded", timeout=60_000)
+            self.page = candidate
+        try:
+            self.page.bring_to_front()
+        except Exception:
+            pass
+        self._armed_page = None
+        self._armed_url = ""
+        return str(self.page.url)
 
     @staticmethod
     def _is_live_fedex_tracking_page(page):
