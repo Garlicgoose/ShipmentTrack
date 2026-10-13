@@ -18,6 +18,7 @@ class ProjectStructureTests(unittest.TestCase):
             "modules/fedex_web_pod.py",
             "modules/fedex_pod_queue.py",
             "modules/fedex_pod_auto.py",
+            "modules/fedex_pod_segmented.py",
         )
         for relative in expected:
             self.assertTrue((ROOT / relative).is_file(), relative)
