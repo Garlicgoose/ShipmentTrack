@@ -96,6 +96,7 @@ class AppUpdaterTests(unittest.TestCase):
     def test_in_app_changelog_reflects_v18(self):
         self.assertEqual(
             (
+                "POD PDF 直接移动到目标文件夹，保留来源目录，同名自动编号并更新结果链接",
                 "检验表按当天 Droplist 完整运单索引确定光联/MPO，独立保留细分业务名称",
                 "每日数量核对帮助发现漏合并文件，未识别文件提供复制和打开目录清单",
                 "设置可调整 FedEx 实验模式单次票数（1–1000，默认 10），保留限流熔断",
