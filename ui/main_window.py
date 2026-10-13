@@ -493,7 +493,7 @@ class MainWindow(QMainWindow):
         self.organize_pods_button = QPushButton("一键整理 POD")
         self.organize_pods_button.setObjectName("smallButton")
         self.organize_pods_button.setToolTip(
-            "仅整理结果中的 POD PDF 文件；不会移动、删除或重命名来源文件夹。"
+            "将结果中的 POD PDF 直接移到目标目录；不会移动、删除或重命名来源文件夹。"
         )
         self.organize_pods_button.setEnabled(False)
         self.organize_pods_button.clicked.connect(self._organize_pods)
@@ -1086,7 +1086,7 @@ class MainWindow(QMainWindow):
         result_file = self._tracking_output_paths.get("result")
         if result_file:
             update_tracking_pod_paths(result_file, result.moved)
-        message = f"已移动 {len(result.moved)} 份 POD 到：\n{Path(destination).expanduser()}"
+        message = f"已将 {len(result.moved)} 份 POD PDF 直接移到目标文件夹：\n{Path(destination).expanduser()}"
         if result.skipped:
             message += f"\n跳过 {len(result.skipped)} 份"
         if rejected:
