@@ -1074,7 +1074,19 @@ class MainWindow(QMainWindow):
                 message += f"\n已安全忽略 {len(rejected)} 个目录、非 PDF 或不存在的路径。"
             QMessageBox.information(self, "ShipmentTrack", message)
             return
-        result = move_pod_files(entries, destination)
+        def confirm_overwrite(conflicts):
+            names = "\n".join(Path(target).name for _source, target in conflicts)
+            answer = QMessageBox.question(
+                self,
+                "覆盖已有 POD？",
+                f"其他不重名的 POD 已移动。目标文件夹已有以下 {len(conflicts)} 份 POD：\n\n"
+                f"{names}\n\n是否覆盖？\n选“否”保留目标中的原文件及来源中的重名文件，并完成整理。",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            return answer == QMessageBox.Yes
+
+        result = move_pod_files(entries, destination, confirm_overwrite=confirm_overwrite)
         mapping = {old.casefold(): new for old, new in result.moved}
         for row in range(self.tracking_table.rowCount()):
             item = self.tracking_table.item(row, 5)

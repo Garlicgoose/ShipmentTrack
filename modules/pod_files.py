@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Move generated POD files into a user-managed archive without overwriting."""
+"""Move POD PDFs first, then optionally replace colliding PDFs as a batch."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import os
 import shutil
-from typing import Iterable
+import tempfile
+from typing import Callable, Iterable
 
 from openpyxl import load_workbook
 
@@ -17,25 +19,32 @@ class PodMoveResult:
     errors: tuple[str, ...]
 
 
-def _unique_destination(folder: Path, name: str) -> Path:
-    candidate = folder / name
-    if not candidate.exists():
-        return candidate
-    stem, suffix = Path(name).stem, Path(name).suffix
-    for index in range(1, 10_000):
-        candidate = folder / f"{stem} ({index}){suffix}"
-        if not candidate.exists():
-            return candidate
-    raise RuntimeError(f"无法为 {name} 生成不重复文件名")
+def _replace_pdf(source: Path, target: Path):
+    # Stage a complete copy on the destination volume before atomically
+    # replacing the old PDF. A failed copy leaves both original files intact.
+    descriptor, temporary = tempfile.mkstemp(prefix=".pod-", suffix=".tmp", dir=target.parent)
+    os.close(descriptor)
+    staged = Path(temporary)
+    try:
+        shutil.copy2(source, staged)
+        os.replace(staged, target)
+        source.unlink()
+    finally:
+        if staged.exists():
+            staged.unlink()
 
 
-def move_pod_files(entries: Iterable[tuple[str, str]], destination) -> PodMoveResult:
+def move_pod_files(
+    entries: Iterable[tuple[str, str]], destination,
+    confirm_overwrite: Callable[[tuple[tuple[str, str], ...]], bool] | None = None,
+) -> PodMoveResult:
     root = Path(destination).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     moved = []
     skipped = []
     errors = []
     seen = set()
+    conflicts = []
     for _carrier, path_text in entries:
         source = Path(str(path_text or "")).expanduser()
         try:
@@ -55,12 +64,33 @@ def move_pod_files(entries: Iterable[tuple[str, str]], destination) -> PodMoveRe
         if root == source.parent:
             skipped.append(str(source))
             continue
-        target = _unique_destination(root, source.name)
+        target = root / source.name
+        if target.exists():
+            if target.is_file() and not target.is_symlink():
+                conflicts.append((source, target))
+            else:
+                errors.append(f"{target}：目标不是普通 PDF 文件，无法覆盖")
+            continue
         try:
             shutil.move(str(source), str(target))
             moved.append((str(source), str(target)))
         except OSError as exc:
             errors.append(f"{source}：{exc}")
+    if conflicts:
+        approved = bool(confirm_overwrite and confirm_overwrite(
+            tuple((str(source), str(target)) for source, target in conflicts)
+        ))
+        for source, target in conflicts:
+            if not approved:
+                skipped.append(str(source))
+                continue
+            try:
+                if not source.is_file() or target.is_symlink() or (target.exists() and not target.is_file()):
+                    raise OSError("来源或目标文件已变化，无法覆盖")
+                _replace_pdf(source, target)
+                moved.append((str(source), str(target)))
+            except OSError as exc:
+                errors.append(f"{source}：{exc}")
     return PodMoveResult(tuple(moved), tuple(skipped), tuple(errors))
 
 

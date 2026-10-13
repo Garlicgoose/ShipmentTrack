@@ -265,6 +265,38 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual(str(destination / "789456+.pdf"), book.active["C3"].value)
         book.close()
 
+    def test_pod_overwrite_dialog_runs_after_other_moves_and_honors_yes_no(self):
+        from PySide6.QtWidgets import QMessageBox
+        for answer in (QMessageBox.No, QMessageBox.Yes):
+            with self.subTest(answer=answer):
+                root = Path(self.temp_dir.name) / str(answer.value)
+                source, target = root / "FedEx", root / "archive"
+                source.mkdir(parents=True)
+                target.mkdir()
+                (source / "123.pdf").write_bytes(b"new")
+                (target / "123.pdf").write_bytes(b"old")
+                (source / "456.pdf").write_bytes(b"other")
+                self.window.tracking_table.setRowCount(0)
+                self.window._tracking_output_paths = {}
+                self.window.settings["pod_archive_dir"] = str(target)
+                for name in ("123.pdf", "456.pdf"):
+                    self.window._append_tracking_result({
+                        "运单号": name[:-4], "快递公司": "FedEx", "POD文件": str(source / name),
+                    })
+                def respond(*_args):
+                    self.assertTrue((target / "456.pdf").is_file())
+                    self.assertEqual(b"old", (target / "123.pdf").read_bytes())
+                    return answer
+                with mock.patch("ui.main_window.QMessageBox.question", side_effect=respond) as question, \
+                     mock.patch("ui.main_window.QMessageBox.information"):
+                    self.window._organize_pods()
+                question.assert_called_once()
+                approved = answer == QMessageBox.Yes
+                self.assertEqual(b"new" if approved else b"old", (target / "123.pdf").read_bytes())
+                self.assertEqual(not approved, (source / "123.pdf").exists())
+                paths = self.window.tracking_table.item(0, 5).data(Qt.UserRole)
+                self.assertEqual([str((target if approved else source) / "123.pdf")], paths)
+
     def test_tracking_overview_updates_carrier_averages_only_when_finished(self):
         self.window._carrier_timings = {
             carrier: {"total": 0.0, "count": 0}
