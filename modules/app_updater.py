@@ -21,7 +21,7 @@ UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "POD PDF 直接移动到目标文件夹，保留来源目录，同名自动编号并更新结果链接",
+    "POD PDF 直接移动到目标文件夹，先移动不重名文件，再统一确认是否覆盖同名 POD",
     "检验表按当天 Droplist 完整运单索引确定光联/MPO，独立保留细分业务名称",
     "每日数量核对帮助发现漏合并文件，未识别文件提供复制和打开目录清单",
     "设置可调整 FedEx 实验模式单次票数（1–1000，默认 10），保留限流熔断",
