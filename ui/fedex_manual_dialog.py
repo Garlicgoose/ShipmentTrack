@@ -15,6 +15,14 @@ from PySide6.QtWidgets import (
 from modules.fedex_manual_pod import ManualFedExPodSession, ManualPodResult
 from modules.fedex_pod_auto import AUTO_BATCH_LIMIT, normalize_batch_limit, run_experimental_auto
 from modules.fedex_pod_queue import FedExPodQueue
+from modules.fedex_pod_segmented import (
+    ITEM_INTERVAL_SECONDS,
+    SEGMENTED_MAX_JOBS,
+    SEGMENT_PAUSE_SECONDS,
+    SITE_COOLDOWN_SECONDS,
+    plan_segments,
+    run_segmented_auto,
+)
 from modules.fedex_web_pod import FedExEdgePodSession
 from units import detect_browser_path
 
@@ -222,6 +230,76 @@ class ExperimentalAutoPodWorker(QThread):
                 playwright.stop()
 
 
+class SegmentedAutoPodWorker(QThread):
+    message = Signal(str)
+    completed = Signal(object)
+    queue_changed = Signal()
+    finished_status = Signal(str)
+
+    def __init__(self, queue_path, output_dir, edge_path="", parent=None):
+        super().__init__(parent)
+        self.queue = FedExPodQueue(queue_path)
+        self.output_dir = Path(output_dir)
+        self.edge_path = edge_path if Path(str(edge_path)).name.casefold() == "msedge.exe" else ""
+        self.stop_event = threading.Event()
+
+    def _interruptible_delay(self, seconds):
+        remaining = max(0, int(seconds))
+        while remaining > 0 and not self.stop_event.is_set():
+            step = min(60, remaining)
+            if self.stop_event.wait(step):
+                return
+            remaining -= step
+            if remaining and seconds >= SEGMENT_PAUSE_SECONDS:
+                self.message.emit(f"后台等待中，剩余约 {max(1, remaining // 60)} 分钟")
+
+    def run(self):
+        playwright = session = None
+        try:
+            from playwright.sync_api import sync_playwright
+            playwright = sync_playwright().start()
+            session = FedExEdgePodSession(
+                playwright,
+                self.output_dir,
+                edge_path=self.edge_path,
+                minimize_browser=False,
+                overwrite=False,
+                log_func=self.message.emit,
+            )
+
+            def completed(result):
+                self.completed.emit(
+                    ManualPodResult(result.tracking_number, result.main_pdf, result.detail_pdf)
+                )
+                self.queue_changed.emit()
+
+            outcome = run_segmented_auto(
+                self.queue,
+                session,
+                log=self.message.emit,
+                completed_callback=completed,
+                stop_requested=self.stop_event.is_set,
+                delay=self._interruptible_delay,
+            )
+            if outcome.site_blocked and outcome.paused:
+                message = "网站恢复探测仍失败；分段自动下载已停止，当前票在暂停列表"
+            elif outcome.stopped:
+                message = "分段自动下载已停止，队列进度已保存"
+            else:
+                message = (
+                    f"分段自动下载结束：目标 {outcome.target}，完成 {outcome.completed}，"
+                    f"暂停 {outcome.paused}，完成分段 {outcome.segments_completed}"
+                )
+            self.finished_status.emit(message)
+        except Exception as exc:
+            self.finished_status.emit(f"分段自动下载无法继续：{exc}")
+        finally:
+            if session is not None:
+                session.close()
+            if playwright is not None:
+                playwright.stop()
+
+
 class FedExManualDialog(QDialog):
     completed = Signal(object)
     queue_finished = Signal()
@@ -231,9 +309,9 @@ class FedExManualDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
         self.setWindowModality(Qt.NonModal)
-        self.setWindowTitle("FedEx POD · 半自动")
-        self.resize(610, 460)
-        self.setMinimumWidth(520)
+        self.setWindowTitle("FedEx POD 任务中心")
+        self.resize(760, 500)
+        self.setMinimumWidth(680)
         self.worker = None
         self.numbers = list(numbers)
         self.output_dir = Path(output_dir)
@@ -254,20 +332,29 @@ class FedExManualDialog(QDialog):
         self.stage_label = QLabel("用户负责 TRACK 和详情；程序只在点击保存按钮时检查当前页面。")
         layout.addWidget(self.stage_label)
 
-        source_controls = QHBoxLayout()
+        mode_controls = QHBoxLayout()
         self.start_button = QPushButton("打开浏览器并开始")
         self.start_button.setObjectName("primaryButton")
         self.start_button.clicked.connect(self.start)
+        self.segmented_button = QPushButton("自动分段下载")
+        self.segmented_button.setObjectName("primaryButton")
+        self.segmented_button.clicked.connect(self.start_segmented)
         self.auto_button = QPushButton(f"实验自动处理（最多 {self.auto_batch_limit} 票）")
         self.auto_button.clicked.connect(self.start_auto)
+        mode_controls.addWidget(self.start_button)
+        mode_controls.addWidget(self.segmented_button)
+        mode_controls.addWidget(self.auto_button)
+        layout.addLayout(mode_controls)
+
+        source_controls = QHBoxLayout()
         self.import_button = QPushButton("添加 Excel")
         self.import_button.clicked.connect(self.import_excel)
         self.copy_button = QPushButton("复制当前单号")
         self.copy_button.clicked.connect(self.copy_current)
         self.connect_site_button = QPushButton("重新连接官网")
         self.connect_site_button.clicked.connect(self.open_tracking_site)
-        for button in (self.start_button, self.auto_button, self.import_button,
-                       self.copy_button, self.connect_site_button):
+        self.connect_site_button.setEnabled(False)
+        for button in (self.import_button, self.copy_button, self.connect_site_button):
             source_controls.addWidget(button)
         layout.addLayout(source_controls)
 
@@ -323,6 +410,10 @@ class FedExManualDialog(QDialog):
             not (self.worker and self.worker.isRunning())
             and bool(counts["pending"] + counts["main_saved"])
         )
+        self.segmented_button.setEnabled(
+            not (self.worker and self.worker.isRunning())
+            and bool(counts["pending"] + counts["main_saved"])
+        )
 
     def start(self):
         if self.worker and self.worker.isRunning():
@@ -338,7 +429,49 @@ class FedExManualDialog(QDialog):
         self.worker.queue_changed.connect(self._refresh_queue)
         self.worker.finished_status.connect(self._finished)
         self.start_button.setEnabled(False)
+        self.segmented_button.setEnabled(False)
+        self.auto_button.setEnabled(False)
         self.import_button.setEnabled(False)
+        self.connect_site_button.setEnabled(True)
+        self.worker.start()
+
+    def start_segmented(self):
+        if self.worker and self.worker.isRunning():
+            return
+        ready = self.queue.counts()["pending"] + self.queue.counts()["main_saved"]
+        target = min(ready, SEGMENTED_MAX_JOBS)
+        segments = plan_segments(target)
+        plan_text = " + ".join(str(size) for size in segments) or "0"
+        answer = QMessageBox.question(
+            self,
+            "FedEx 自动分段下载",
+            f"本次最多处理 {SEGMENTED_MAX_JOBS} 票，当前计划：{plan_text}。\n"
+            f"票间约 {ITEM_INTERVAL_SECONDS} 秒，段间休息 "
+            f"{SEGMENT_PAUSE_SECONDS // 60} 分钟；网站异常会冷却 "
+            f"{SITE_COOLDOWN_SECONDS // 3600} 小时后单票探测。\n\n"
+            "是否开始自动分段下载？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.worker = SegmentedAutoPodWorker(
+            self.queue.path, self.output_dir, self.browser_path, self
+        )
+        self.worker.message.connect(self.log.appendPlainText)
+        self.worker.completed.connect(self.completed)
+        self.worker.completed.connect(lambda _result: self._refresh_queue())
+        self.worker.queue_changed.connect(self._refresh_queue)
+        self.worker.finished_status.connect(self._finished)
+        self.start_button.setEnabled(False)
+        self.segmented_button.setEnabled(False)
+        self.auto_button.setEnabled(False)
+        self.import_button.setEnabled(False)
+        self.connect_site_button.setEnabled(False)
+        for button in (self.print_button, self.next_button, self.pause_button,
+                       self.skip_button, self.retry_button):
+            button.setEnabled(False)
+        self.log.appendPlainText(f"自动分段下载启动；本次计划：{plan_text}。")
         self.worker.start()
 
     def start_auto(self):
@@ -364,6 +497,7 @@ class FedExManualDialog(QDialog):
         self.worker.queue_changed.connect(self._refresh_queue)
         self.worker.finished_status.connect(self._finished)
         self.start_button.setEnabled(False)
+        self.segmented_button.setEnabled(False)
         self.auto_button.setEnabled(False)
         self.import_button.setEnabled(False)
         for button in (self.print_button, self.next_button, self.pause_button,
@@ -448,6 +582,7 @@ class FedExManualDialog(QDialog):
         self.log.appendPlainText(message)
         self.current_number = ""
         self.import_button.setEnabled(True)
+        self.connect_site_button.setEnabled(False)
         for button in (self.print_button, self.next_button, self.pause_button,
                        self.skip_button, self.retry_button):
             button.setEnabled(True)
@@ -456,6 +591,7 @@ class FedExManualDialog(QDialog):
         has_ready = bool(counts["pending"] + counts["main_saved"])
         self.start_button.setEnabled(has_ready)
         self.auto_button.setEnabled(has_ready)
+        self.segmented_button.setEnabled(has_ready)
         self.queue_finished.emit()
 
     def closeEvent(self, event):

@@ -8,7 +8,11 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt
 
 from modules.fedex_manual_pod import ManualPageSave
-from ui.fedex_manual_dialog import FedExManualDialog, ManualPodWorker
+from ui.fedex_manual_dialog import (
+    FedExManualDialog,
+    ManualPodWorker,
+    SegmentedAutoPodWorker,
+)
 
 
 class ManualDialogTests(unittest.TestCase):
@@ -22,12 +26,38 @@ class ManualDialogTests(unittest.TestCase):
             self.assertIn("用户负责 TRACK", dialog.stage_label.text())
             self.assertEqual("打开浏览器并开始", dialog.start_button.text())
             self.assertIn("实验自动处理", dialog.auto_button.text())
+            self.assertEqual("自动分段下载", dialog.segmented_button.text())
+            self.assertEqual("重新连接官网", dialog.connect_site_button.text())
             self.assertEqual("保存当前页面 PDF", dialog.print_button.text())
             self.assertEqual("下一票", dialog.next_button.text())
             self.assertEqual("跳过当前", dialog.skip_button.text())
             self.assertTrue(dialog.windowFlags() & Qt.WindowStaysOnTopHint)
             self.assertTrue(dialog.windowFlags() & Qt.Window)
             dialog.close()
+
+    def test_segmented_mode_is_separate_and_opt_in(self):
+        with tempfile.TemporaryDirectory() as folder:
+            dialog = FedExManualDialog(["541964339019"], folder)
+            with mock.patch(
+                "ui.fedex_manual_dialog.QMessageBox.question",
+                return_value=QMessageBox.Yes,
+            ) as question, mock.patch.object(SegmentedAutoPodWorker, "start") as start:
+                dialog.start_segmented()
+            question.assert_called_once()
+            self.assertIsInstance(dialog.worker, SegmentedAutoPodWorker)
+            start.assert_called_once()
+            self.assertIn("当前计划：1", question.call_args.args[2])
+            dialog.worker = None
+            dialog.close()
+
+    def test_segmented_worker_wait_can_be_stopped_immediately(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker = SegmentedAutoPodWorker(
+                os.path.join(folder, "queue.json"), folder
+            )
+            worker.stop_event.set()
+            worker._interruptible_delay(10_800)
+            self.assertTrue(worker.stop_event.is_set())
 
     def test_experimental_auto_mode_is_opt_in(self):
         with tempfile.TemporaryDirectory() as folder:
