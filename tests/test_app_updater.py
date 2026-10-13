@@ -93,21 +93,21 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v18(self):
+    def test_in_app_changelog_reflects_v19(self):
         self.assertEqual(
             (
-                "检验表按当天 Droplist 完整运单索引确定光联/MPO，独立保留细分业务名称",
-                "每日数量核对帮助发现漏合并文件，未识别文件提供复制和打开目录清单",
-                "设置可调整 FedEx 实验模式单次票数（1–1000，默认 10），保留限流熔断",
-                "修复 EI 状态解析、FedEx 标签恢复，并将结果操作移至可折叠右侧栏",
+                "新增独立的 FedEx 自动分段下载，每次最多 100 票，超过 50 票按 25 票分段",
+                "分段模式票间等待 15 秒、段间休息 5 分钟，网站异常冷却 3 小时后单票探测",
+                "半自动模式由程序打开并连接受控 FedEx Tracking 页面，支持一键重新连接",
+                "保留原有实验自动模式及其可配置单次票数，不与分段模式混用",
             ),
             app_updater.CURRENT_CHANGELOG,
         )
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.8")[1].split("## 1.7")[0]
-        for note in ("完整运单索引", "细分名称", "单次票数", "1–1000", "右侧", "EI"):
+        section = changelog.split("## 1.9")[1].split("## 1.8")[0]
+        for note in ("100 票", "25 票", "15 秒", "5 分钟", "3 小时", "重新连接"):
             self.assertIn(note, section)
 
 

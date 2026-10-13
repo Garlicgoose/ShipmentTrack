@@ -16,15 +16,15 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.8"
+CURRENT_VERSION = "1.9"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "检验表按当天 Droplist 完整运单索引确定光联/MPO，独立保留细分业务名称",
-    "每日数量核对帮助发现漏合并文件，未识别文件提供复制和打开目录清单",
-    "设置可调整 FedEx 实验模式单次票数（1–1000，默认 10），保留限流熔断",
-    "修复 EI 状态解析、FedEx 标签恢复，并将结果操作移至可折叠右侧栏",
+    "新增独立的 FedEx 自动分段下载，每次最多 100 票，超过 50 票按 25 票分段",
+    "分段模式票间等待 15 秒、段间休息 5 分钟，网站异常冷却 3 小时后单票探测",
+    "半自动模式由程序打开并连接受控 FedEx Tracking 页面，支持一键重新连接",
+    "保留原有实验自动模式及其可配置单次票数，不与分段模式混用",
 )
 
 
