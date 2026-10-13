@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 import shutil
 from typing import Iterable
 
@@ -16,11 +15,6 @@ class PodMoveResult:
     moved: tuple[tuple[str, str], ...]
     skipped: tuple[str, ...]
     errors: tuple[str, ...]
-
-
-def _safe_folder_name(value: str) -> str:
-    text = re.sub(r'[<>:"/\\|?*]+', "_", str(value or "POD").strip())
-    return text.strip(" .") or "POD"
 
 
 def _unique_destination(folder: Path, name: str) -> Path:
@@ -42,7 +36,7 @@ def move_pod_files(entries: Iterable[tuple[str, str]], destination) -> PodMoveRe
     skipped = []
     errors = []
     seen = set()
-    for carrier, path_text in entries:
+    for _carrier, path_text in entries:
         source = Path(str(path_text or "")).expanduser()
         try:
             source = source.resolve()
@@ -58,12 +52,10 @@ def move_pod_files(entries: Iterable[tuple[str, str]], destination) -> PodMoveRe
         if not source.is_file() or source.suffix.casefold() != ".pdf":
             skipped.append(str(source))
             continue
-        carrier_dir = root / _safe_folder_name(carrier)
-        carrier_dir.mkdir(parents=True, exist_ok=True)
-        if carrier_dir == source.parent:
+        if root == source.parent:
             skipped.append(str(source))
             continue
-        target = _unique_destination(carrier_dir, source.name)
+        target = _unique_destination(root, source.name)
         try:
             shutil.move(str(source), str(target))
             moved.append((str(source), str(target)))

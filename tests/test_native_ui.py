@@ -222,6 +222,49 @@ class NativeUiTests(unittest.TestCase):
         self.assertIn("安全忽略 1 个", info.call_args.args[2])
         self.assertTrue(directory.is_dir())
 
+    def test_pod_organizer_flattens_carrier_pdfs_and_updates_result_links(self):
+        from openpyxl import Workbook, load_workbook
+        root = Path(self.temp_dir.name)
+        destination = root / "archive"
+        self.window.settings["pod_archive_dir"] = str(destination)
+        entries = []
+        for carrier, name in (("DHL", "123456.pdf"), ("FedEx", "789456.pdf"),
+                              ("FedEx", "789456+.pdf")):
+            directory = root / "pdf" / carrier
+            directory.mkdir(parents=True, exist_ok=True)
+            file = directory / name
+            file.write_bytes(b"%PDF-test")
+            entries.append(file)
+        self.window._append_tracking_result({
+            "运单号": "123456", "快递公司": "DHL", "POD文件": str(entries[0]),
+        })
+        self.window._append_tracking_result({
+            "运单号": "789456", "快递公司": "FedEx", "POD文件": str(entries[1]),
+            "POD详情文件": str(entries[2]),
+        })
+        result_file = root / "tracking_result.xlsx"
+        book = Workbook()
+        book.active.append(("运单号", "POD文件", "POD详情文件"))
+        book.active.append(("123456", str(entries[0]), ""))
+        book.active.append(("789456", str(entries[1]), str(entries[2])))
+        book.save(result_file)
+        book.close()
+        self.window._tracking_output_paths["result"] = result_file
+        with mock.patch("ui.main_window.QMessageBox.information"):
+            self.window._organize_pods()
+        self.assertEqual({file.name for file in entries}, {file.name for file in destination.iterdir()})
+        for file in entries:
+            self.assertFalse(file.exists())
+            self.assertTrue(file.parent.is_dir())
+        for row in range(2):
+            paths = self.window.tracking_table.item(row, 5).data(Qt.UserRole)
+            self.assertTrue(all(Path(path).parent == destination for path in paths))
+        book = load_workbook(result_file)
+        self.assertEqual(str(destination / "123456.pdf"), book.active["B2"].value)
+        self.assertEqual(str(destination / "789456.pdf"), book.active["B3"].value)
+        self.assertEqual(str(destination / "789456+.pdf"), book.active["C3"].value)
+        book.close()
+
     def test_tracking_overview_updates_carrier_averages_only_when_finished(self):
         self.window._carrier_timings = {
             carrier: {"total": 0.0, "count": 0}
