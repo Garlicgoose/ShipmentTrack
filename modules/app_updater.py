@@ -16,15 +16,15 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.9"
+CURRENT_VERSION = "1.91"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "新增独立的 FedEx 自动分段下载，每次最多 100 票，超过 50 票按 25 票分段",
-    "分段模式票间等待 15 秒、段间休息 5 分钟，网站异常冷却 3 小时后单票探测",
-    "半自动模式由程序打开并连接受控 FedEx Tracking 页面，支持一键重新连接",
-    "保留原有实验自动模式及其可配置单次票数，不与分段模式混用",
+    "修复 EI 已有 Completed 等当前状态却被写成 Unknown 的问题",
+    "EI 等待真实状态渲染完成；页面未加载成功时显示 Error 和原因",
+    "一键整理 POD 只移动已下载的 PDF 到目标目录，不移动来源文件夹",
+    "POD 来源目录保持原位，整理后同步更新结果表中的 PDF 路径",
 )
 
 

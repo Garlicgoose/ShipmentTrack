@@ -99,7 +99,7 @@ class NativeUiTests(unittest.TestCase):
                 for carrier, field in self.window.settings_page.audit_rate_inputs.items()
             },
         )
-        self.assertEqual("1.9", APP_VERSION)
+        self.assertEqual("1.91", APP_VERSION)
         popup_buttons = [
             button.text() for button in self.window.profile_popup.findChildren(QPushButton)
         ]

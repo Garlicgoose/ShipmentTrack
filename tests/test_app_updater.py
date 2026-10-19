@@ -93,21 +93,21 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v19(self):
+    def test_in_app_changelog_reflects_v191(self):
         self.assertEqual(
             (
-                "新增独立的 FedEx 自动分段下载，每次最多 100 票，超过 50 票按 25 票分段",
-                "分段模式票间等待 15 秒、段间休息 5 分钟，网站异常冷却 3 小时后单票探测",
-                "半自动模式由程序打开并连接受控 FedEx Tracking 页面，支持一键重新连接",
-                "保留原有实验自动模式及其可配置单次票数，不与分段模式混用",
+                "修复 EI 已有 Completed 等当前状态却被写成 Unknown 的问题",
+                "EI 等待真实状态渲染完成；页面未加载成功时显示 Error 和原因",
+                "一键整理 POD 只移动已下载的 PDF 到目标目录，不移动来源文件夹",
+                "POD 来源目录保持原位，整理后同步更新结果表中的 PDF 路径",
             ),
             app_updater.CURRENT_CHANGELOG,
         )
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.9")[1].split("## 1.8")[0]
-        for note in ("100 票", "25 票", "15 秒", "5 分钟", "3 小时", "重新连接"):
+        section = changelog.split("## 1.91")[1].split("## 1.9")[0]
+        for note in ("EI", "Unknown", "Error", "PDF", "来源文件夹"):
             self.assertIn(note, section)
 
 
