@@ -362,20 +362,27 @@ def wait_for_detail_page(page, tracking_number):
 
     for _ in range(45):
         try:
-            current_url = page.url.lower()
             page_text = page.locator("body").inner_text(timeout=3000)
             page_text_upper = page_text.upper()
 
             loading_words = ["LOADING", "PLEASE WAIT", "SEARCHING"]
             has_loading = any(word in page_text_upper for word in loading_words)
 
-            if "/shipments/" in current_url and "/details" in current_url and not has_loading:
-                return True
-            if tracking_text in page_text_upper and "STATUS:" in page_text_upper and not has_loading:
-                return True
-            if tracking_text in page_text_upper and "SHIPMENT:" in page_text_upper and not has_loading:
+            # EXP.O NOW renders the detail-page shell before its status data.
+            # A matching URL or Shipment heading alone is therefore not ready.
+            # Wait until a supported current status is actually readable.
+            status = extract_status(page_text, extract_labeled_status(page))
+            if (
+                tracking_text in page_text_upper
+                and status not in {"", "Unknown"}
+                and not has_loading
+            ):
                 return True
             if "NO RESULTS" in page_text_upper or "NO SHIPMENT" in page_text_upper:
+                return True
+            if any(word in page_text.lower() for word in (
+                "captcha", "verify you are human", "security check", "access denied"
+            )):
                 return True
         except Exception:
             pass
@@ -604,11 +611,16 @@ def extract_status(page_text, labeled_status=""):
     if semantic_status:
         return semantic_status
 
-    # Text fallback is deliberately anchored to a status label. Searching the
-    # whole page would mistake a historical Delivered event for current state.
+    # Text fallback is deliberately anchored to a status label. Match the
+    # status token immediately after the label instead of scanning up to a
+    # later section marker: real EXP.O NOW headings can contain more than 100
+    # characters of route and milestone text before the Details tab.
+    status_choices = "|".join(
+        re.escape(status) for status in sorted(EI_STATUS_VALUES, key=len, reverse=True)
+    )
     for pattern in (
-        r"(?:Current\s+|Shipment\s+)?Status\s*:\s*(.{1,100}?)(?=\s+(?:Route|Origin|Destination|Data as of|Details|Events|References|Shipment Timeline)\b|$)",
-        r"(?:Current\s+|Shipment\s+)Status\s+(.{1,100}?)(?=\s+(?:Route|Origin|Destination|Data as of|Details|Events|References|Shipment Timeline)\b|$)",
+        rf"(?:Current\s+|Shipment\s+)?Status\s*:\s*({status_choices})(?![A-Za-z])",
+        rf"(?:Current\s+|Shipment\s+)Status\s+({status_choices})(?![A-Za-z])",
     ):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
@@ -741,7 +753,7 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
         return result
 
     try:
-        open_expeditors_detail_page(page, tracking_text)
+        loaded = open_expeditors_detail_page(page, tracking_text)
         close_expo_welcome_popup_once(page)
         remove_overlays(page)
 
@@ -756,6 +768,11 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
         if any(word in page_text.lower() for word in blocked_words):
             result["status"] = "Blocked"
             result["error"] = "Expeditors blocked or captcha"
+            return result
+
+        if not loaded:
+            result["status"] = "Error"
+            result["error"] = "EI详情页在45秒内未显示当前状态"
             return result
 
         status = extract_status(page_text, extract_labeled_status(page))

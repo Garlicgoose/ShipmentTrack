@@ -42,6 +42,44 @@ class ExpeditorsParsingTests(unittest.TestCase):
         self.assertEqual("", ei.extract_labeled_status(page))
         self.assertEqual("Completed", ei.extract_status("Current Status: Completed Details"))
 
+    def test_long_real_heading_does_not_turn_completed_into_unknown(self):
+        body = (
+            "Shipment: 4915209868 | Status: Completed "
+            "MACAU to BANGKOK | Services Completed Notified Customers Broker "
+            "Arrived at Final Port: 13-OCT-2026 ICT Details Events References "
+            "Shipment Timeline"
+        )
+        self.assertGreater(
+            len(body.split("Status:", 1)[1].split("Details", 1)[0]),
+            100,
+        )
+        self.assertEqual("Completed", ei.extract_status(body))
+
+    @mock.patch.object(ei.time, "sleep")
+    def test_detail_wait_ignores_shell_until_current_status_renders(self, _sleep):
+        page = mock.Mock()
+        page.locator.return_value.inner_text.side_effect = [
+            "Shipment: 4915209868 Details Events References",
+            "Shipment: 4915209868 Status: Completed Details Events References",
+        ]
+        page.evaluate.return_value = []
+
+        self.assertTrue(ei.wait_for_detail_page(page, "4915209868"))
+        self.assertEqual(2, page.locator.return_value.inner_text.call_count)
+
+    def test_query_reports_load_failure_instead_of_false_unknown(self):
+        page = mock.Mock()
+        page.locator.return_value.inner_text.return_value = (
+            "Shipment: 4915209868 Details Events References"
+        )
+        with mock.patch.object(ei, "open_expeditors_detail_page", return_value=False), \
+             mock.patch.object(ei, "close_expo_welcome_popup_once"), \
+             mock.patch.object(ei, "remove_overlays"):
+            result = ei.query_expeditors_one(page, "4915209868", save_pdf=False)
+
+        self.assertEqual("Error", result["status"])
+        self.assertIn("未显示当前状态", result["error"])
+
 
 if __name__ == "__main__":
     unittest.main()
