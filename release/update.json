@@ -1,11 +1,11 @@
 {
-  "version": "1.91",
-  "exe_url": "https://github.com/Garlicgoose/ShipmentTrack/releases/download/v1.91-20261019/Shipment.Track.exe",
-  "sha256": "d73c8711365eb4cc3833cb9e1d2cc981033a7ee56a02c5cec8348f924ce92740",
+  "version": "1.9",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.9-20261013/release/Shipment%20Track.exe",
+  "sha256": "f3c95e01eb3c8c663bee690789a3c618fd5b94fe3de288142ca0c0add151f73f",
   "notes": [
-    "修复 EI 已有 Completed 等当前状态却被写成 Unknown 的问题",
-    "EI 等待真实状态渲染完成；页面未加载成功时显示 Error 和原因",
-    "一键整理 POD 只移动已下载的 PDF 到目标目录，不移动来源文件夹",
-    "POD 来源目录保持原位，整理后同步更新结果表中的 PDF 路径"
+    "新增独立的 FedEx 自动分段下载，每次最多 100 票，超过 50 票按 25 票分段",
+    "分段模式票间等待 15 秒、段间休息 5 分钟，网站异常冷却 3 小时后单票探测",
+    "半自动模式由程序打开并连接受控 FedEx Tracking 页面，支持一键重新连接",
+    "保留原有实验自动模式及其可配置单次票数，不与分段模式混用"
   ]
 }
