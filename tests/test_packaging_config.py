@@ -28,16 +28,28 @@ class PackagingConfigTests(unittest.TestCase):
     def test_build_obfuscates_signed_authorization_core(self):
         script = (ROOT / "build.ps1").read_text("utf-8-sig")
         spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
-        self.assertIn("python_modules\\authorization\\authorization", script)
+        self.assertIn('param(', script)
+        self.assertIn('[string]$AuthorizationRoot = ""', script)
+        self.assertIn('$env:SHIPMENTTRACK_AUTHORIZATION_SOURCE', script)
+        self.assertIn('Join-Path $authorizationSource "authorization"', script)
         self.assertIn("pyarmor gen -O $authObfuscated -r license.py $authorizationPackage", script)
         self.assertIn('$authRuntime = Join-Path $PSScriptRoot "build\\auth_runtime"', script)
         self.assertIn('"pyarmor_runtime_000000"', script)
         self.assertIn('Path("build/auth_obfuscated").resolve()', spec)
         self.assertIn('Path("build/auth_runtime").resolve()', spec)
-        self.assertIn('Path("../../python_modules/authorization").resolve()', spec)
+        self.assertIn('"SHIPMENTTRACK_AUTHORIZATION_SOURCE"', spec)
+        self.assertIn('authorization_source / "authorization" / "__init__.py"', spec)
         self.assertIn(
             'pathex=[str(auth_runtime), str(authorization_source), "."]', spec
         )
+        for module_name in (
+            '"license"',
+            '"authorization"',
+            '"authorization.admin"',
+            '"authorization.machine_id"',
+            '"authorization.verifier"',
+        ):
+            self.assertIn(module_name, spec)
         self.assertIn('name.startswith("authorization.")', spec)
         self.assertIn('auth_obfuscated / "authorization"', spec)
         self.assertIn('"pyarmor_runtime_000000"', spec)
@@ -118,7 +130,7 @@ class PackagingConfigTests(unittest.TestCase):
     def test_build_refuses_to_overwrite_runtime_data(self):
         """已有设置/机器码属于用户，重建产物必须换空目录。"""
         script = (ROOT / "build.ps1").read_text("utf-8-sig")
-        self.assertIn("param([string]$DistRoot", script)
+        self.assertIn('[string]$DistRoot = ""', script)
         self.assertIn("输出目录包含运行数据", script)
         self.assertIn("'settings.json', 'machine_id', 'authorization.cache'", script)
 
@@ -135,6 +147,14 @@ class PackagingConfigTests(unittest.TestCase):
     def test_packaged_app_has_offline_smoke_mode(self):
         main_source = (ROOT / "main.py").read_text("utf-8")
         self.assertIn('"--smoke-test"', main_source)
+        for module_name in (
+            '"license"',
+            '"authorization"',
+            '"authorization.admin"',
+            '"authorization.machine_id"',
+            '"authorization.verifier"',
+        ):
+            self.assertIn(module_name, main_source)
         self.assertIn("QPixmap(resource).isNull()", main_source)
         self.assertIn('"modules.pod_audit"', main_source)
         self.assertIn('"modules.fedex_web_pod"', main_source)

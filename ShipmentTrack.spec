@@ -4,11 +4,21 @@
 Playwright 驱动仍需随程序发布，但 Edge/Chrome 浏览器本体不进入产物。
 程序通过设置页选择并检测系统已安装的浏览器。
 """
+import os
 from pathlib import Path
 
 auth_obfuscated = Path("build/auth_obfuscated").resolve()
 auth_runtime = Path("build/auth_runtime").resolve()
-authorization_source = Path("../../python_modules/authorization").resolve()
+authorization_source = Path(
+    os.environ.get(
+        "SHIPMENTTRACK_AUTHORIZATION_SOURCE",
+        "../../python_modules/authorization",
+    )
+).resolve()
+if not (authorization_source / "authorization" / "__init__.py").is_file():
+    raise FileNotFoundError(
+        f"Authorization source package not found under: {authorization_source}"
+    )
 
 datas = [
     ("assets/app_icon.ico", "assets"),
@@ -20,6 +30,11 @@ datas = [
 binaries = []
 hiddenimports = [
     "pyarmor_runtime_000000",
+    "license",
+    "authorization",
+    "authorization.admin",
+    "authorization.machine_id",
+    "authorization.verifier",
     # importlib 动态加载的快递模块（PyInstaller 无法静态发现）
     "modules.dhl_module",
     "modules.dsv_module",

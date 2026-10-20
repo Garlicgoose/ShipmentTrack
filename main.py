@@ -63,6 +63,11 @@ def main():
     if smoke_test:
         try:
             for module_name in (
+                "license",
+                "authorization",
+                "authorization.admin",
+                "authorization.machine_id",
+                "authorization.verifier",
                 "modules.tracking_runner",
                 "modules.pod_audit",
                 "modules.excel_reconcile",

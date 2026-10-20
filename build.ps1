@@ -5,7 +5,10 @@
 # 3) 将默认 JSON 复制到 data 文件夹，并复制使用说明
 # 使用系统已安装的 Edge/Chrome，不复制浏览器进安装目录。
 
-param([string]$DistRoot = "")
+param(
+    [string]$DistRoot = "",
+    [string]$AuthorizationRoot = ""
+)
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -22,7 +25,13 @@ if (Test-Path $dataDir) {
 }
 $authObfuscated = Join-Path $PSScriptRoot "build\auth_obfuscated"
 $authRuntime = Join-Path $PSScriptRoot "build\auth_runtime"
-$authorizationPackage = Resolve-Path (Join-Path $PSScriptRoot "..\..\python_modules\authorization\authorization")
+$authorizationSource = if ($AuthorizationRoot) {
+    Resolve-Path $AuthorizationRoot
+} else {
+    Resolve-Path (Join-Path $PSScriptRoot "..\..\python_modules\authorization")
+}
+$authorizationPackage = Resolve-Path (Join-Path $authorizationSource "authorization")
+$env:SHIPMENTTRACK_AUTHORIZATION_SOURCE = [string]$authorizationSource
 
 Write-Host "=== Step 1: obfuscate authorization core ==="
 pyarmor gen -O $authObfuscated -r license.py $authorizationPackage
