@@ -16,15 +16,15 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.91"
+CURRENT_VERSION = "0.92"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "修复 EI 已有 Completed 等当前状态却被写成 Unknown 的问题",
-    "EI 等待真实状态渲染完成；页面未加载成功时显示 Error 和原因",
-    "一键整理 POD 只移动已下载的 PDF 到目标目录，不移动来源文件夹",
-    "POD 来源目录保持原位，整理后同步更新结果表中的 PDF 路径",
+    "检验表以最后一个有效 Shipment 为截止，去除尾部公式和非明细空行",
+    "按 Shipment 核对检验表与 Droplist，区分数据缺失、运单错误和数量不对",
+    "核对异常可点击查看 Shipment 和原因，并写入 Shipment异常工作表",
+    "FedEx 分段下载改用官网直链；任一票失败立即停止并弹窗提醒",
 )
 
 

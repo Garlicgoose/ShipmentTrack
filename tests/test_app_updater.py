@@ -37,6 +37,7 @@ class AppUpdaterTests(unittest.TestCase):
         }
 
     def test_version_comparison_is_numeric(self):
+        self.assertTrue(app_updater.is_newer_version("0.93", "0.92"))
         self.assertTrue(app_updater.is_newer_version("1.10", "1.9"))
         self.assertTrue(app_updater.is_newer_version("1.4", "1.3"))
         self.assertTrue(app_updater.is_newer_version("1.5", "1.4"))
@@ -54,7 +55,7 @@ class AppUpdaterTests(unittest.TestCase):
             app_updater.validate_manifest(invalid)
 
     def test_fetch_only_returns_newer_release(self):
-        document = json.dumps(self.manifest(version="1.1")).encode()
+        document = json.dumps(self.manifest(version="0.91")).encode()
         with mock.patch("modules.app_updater.urlopen", return_value=_Response(document)):
             self.assertIsNone(app_updater.fetch_update_manifest())
 
@@ -93,21 +94,21 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v191(self):
+    def test_in_app_changelog_reflects_v092(self):
         self.assertEqual(
             (
-                "修复 EI 已有 Completed 等当前状态却被写成 Unknown 的问题",
-                "EI 等待真实状态渲染完成；页面未加载成功时显示 Error 和原因",
-                "一键整理 POD 只移动已下载的 PDF 到目标目录，不移动来源文件夹",
-                "POD 来源目录保持原位，整理后同步更新结果表中的 PDF 路径",
+                "检验表以最后一个有效 Shipment 为截止，去除尾部公式和非明细空行",
+                "按 Shipment 核对检验表与 Droplist，区分数据缺失、运单错误和数量不对",
+                "核对异常可点击查看 Shipment 和原因，并写入 Shipment异常工作表",
+                "FedEx 分段下载改用官网直链；任一票失败立即停止并弹窗提醒",
             ),
             app_updater.CURRENT_CHANGELOG,
         )
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.91")[1].split("## 1.9")[0]
-        for note in ("EI", "Unknown", "Error", "PDF", "来源文件夹"):
+        section = changelog.split("## 0.92")[1].split("## 1.91")[0]
+        for note in ("Shipment", "数据缺失", "运单错误", "数量不对", "官网直链", "弹窗"):
             self.assertIn(note, section)
 
 
