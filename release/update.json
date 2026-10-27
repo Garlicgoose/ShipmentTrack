@@ -1,11 +1,11 @@
 {
-  "version": "1.91",
-  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.91-fixed-20261020/release/Shipment%20Track.exe",
-  "sha256": "ce78e64f967e751e41e35e73c3cce2635771e56d4d691f1bdc66fd449a7ff3ce",
+  "version": "0.92",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v0.92-20261028/release/Shipment%20Track.exe",
+  "sha256": "ed70ab67ec904cf50746c5848a965d1ce247206e5d0909d42485d0ebe6a31e2a",
   "notes": [
-    "修复 EI 已有 Completed 等当前状态却被写成 Unknown 的问题",
-    "EI 等待真实状态渲染完成；页面未加载成功时显示 Error 和原因",
-    "一键整理 POD 只移动已下载的 PDF 到目标目录，不移动来源文件夹",
-    "修复 v1.91 更新包缺少 authorization 模块导致无法启动的问题"
+    "检验表以最后一个有效 Shipment 为截止，去除尾部公式和非明细空行",
+    "按 Shipment 核对数据缺失、运单错误和数量不对，异常行可点击查看",
+    "合并检验表新增 Shipment异常工作表，记录两边数量、运单和来源",
+    "FedEx 分段下载改用官网直链，失败立即停止并弹窗，不再静默等待 3 小时"
   ]
 }
