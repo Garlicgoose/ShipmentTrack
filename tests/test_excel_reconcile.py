@@ -74,6 +74,21 @@ def create_droplist_with_business_end_gap(path: Path):
     workbook.save(path)
 
 
+def create_inspect_with_shipment_footer(path: Path):
+    workbook = Workbook()
+    sheet = workbook.active
+    headers = ["S/O", "Line", "P/N", "Company", "Country", "Packed quantity"]
+    headers.extend([f"Field {index}" for index in range(7, 14)])
+    headers.append("Shipment")
+    sheet.append(headers)
+    sheet.append(["SO-1", "10", "P1", "A", "US", 5] + [""] * 7 + ["SHIP-1"])
+    sheet.append(["note before next detail", "", "", "", "", 999] + [""] * 8)
+    sheet.append(["SO-2", "20", "P2", "B", "US", 7] + [""] * 7 + ["SHIP-2"])
+    sheet.cell(8, 9, "=SUBTOTAL(9,I2:I7)")
+    sheet.cell(11, 11, 123.45)
+    workbook.save(path)
+
+
 class ExcelReconcileTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -291,6 +306,22 @@ class ExcelReconcileTests(unittest.TestCase):
         )
         self.assertEqual(1, result.droplist_rows)
         self.assertEqual(5, result.rows[0].droplist_quantity)
+
+    def test_inspection_uses_last_shipment_and_skips_non_detail_rows(self):
+        source = self.inspect / "9.24 MPO.xlsx"
+        create_inspect_with_shipment_footer(source)
+        result = merge_and_reconcile_excel(
+            self.inspect, None, self.root / "output", self.rules
+        )
+        self.assertEqual(2, result.inspect_rows)
+        self.assertEqual(12, result.rows[0].inspect_quantity)
+        merged = load_workbook(result.inspect_output_file)["合并检验表"]
+        self.assertEqual(3, merged.max_row)
+        self.assertEqual(["SHIP-1", "SHIP-2"], [merged.cell(row, 14).value for row in (2, 3)])
+        self.assertNotIn(
+            "note before next detail",
+            [merged.cell(row, 1).value for row in range(2, merged.max_row + 1)],
+        )
 
     def test_inspect_and_droplist_can_run_independently(self):
         create_inspect(self.inspect / "9.10 澳车.xlsx", [10])

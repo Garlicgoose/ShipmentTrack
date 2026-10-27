@@ -121,6 +121,49 @@ def _last_non_empty_row(sheet, start_row: int, max_column: int) -> int:
     return start_row - 1
 
 
+def _header_column(sheet, header_row: int, *names: str) -> int:
+    """Return the first column whose normalized header exactly matches a name."""
+    expected = {
+        re.sub(r"[^0-9a-z]+", "", unicodedata.normalize("NFKC", name).casefold())
+        for name in names
+    }
+    for column in range(1, sheet.max_column + 1):
+        value = unicodedata.normalize(
+            "NFKC", str(_safe_value(sheet, header_row, column) or "")
+        ).casefold()
+        if re.sub(r"[^0-9a-z]+", "", value) in expected:
+            return column
+    return 0
+
+
+def _inspection_source_rows(sheet, start_row: int, max_column: int) -> tuple[int, ...]:
+    """Find real inspection details, using Shipment as the business end marker.
+
+    Inspection exports can leave subtotal formulas and scratch calculations far
+    below the last detail.  When a Shipment header is available, the last row
+    containing a Shipment is the true end and rows without a Shipment are not
+    business details.  The old last-non-empty behavior remains as a compatibility
+    fallback for older/custom templates that do not expose this column.
+    """
+    shipment_column = _header_column(sheet, 1, "Shipment")
+    if not shipment_column:
+        last_row = _last_non_empty_row(sheet, start_row, max_column)
+        return tuple(range(start_row, last_row + 1))
+
+    last_row = start_row - 1
+    for row in range(sheet.max_row, start_row - 1, -1):
+        if _safe_value(sheet, row, shipment_column) not in (None, ""):
+            last_row = row
+            break
+    if last_row < start_row:
+        return ()
+    return tuple(
+        row
+        for row in range(start_row, last_row + 1)
+        if _safe_value(sheet, row, shipment_column) not in (None, "")
+    )
+
+
 def _is_overseas_truck_filename(name: str) -> bool:
     """识别“国外第1车 / 国外出货第一车”等检验表文件名。"""
     stem = Path(str(name or "")).stem
@@ -354,8 +397,8 @@ def _merge_inspect(
         _copy_column_layout(source, output_sheet, max_column)
         if file_index == 0:
             output_sheet.sheet_view.showGridLines = source.sheet_view.showGridLines
-        last_source_row = _last_non_empty_row(source, 2, max_column)
-        if last_source_row < 2:
+        source_rows = _inspection_source_rows(source, 2, max_column)
+        if not source_rows:
             issues.append(("检验表", file.name, "没有数据行"))
             workbook.close()
             continue
@@ -407,11 +450,10 @@ def _merge_inspect(
         if not date_label:
             issues.append(("检验表", file.name, "文件名和父文件夹均无法识别日期"))
 
-        # 只复制到最后一个非空行，去掉每个检验表末尾多余的空行；
-        # 文件内部原本存在的空行仍然保留。
-        for source_row in range(2, last_source_row + 1):
+        # Shipment 是检验表真实业务行标识。尾部残留公式、备注和计算值不复制；
+        # 明细区域里没有 Shipment 的空白/说明行同样不产生输出空行。
+        for source_row in source_rows:
             row_map[source_row] = target_row
-            empty_row = _is_empty_row(source, source_row, max_column)
             _append_source_row(
                 source,
                 source_row,
@@ -419,24 +461,22 @@ def _merge_inspect(
                 target_row,
                 max_column,
             )
-            if not empty_row:
-                _append_metadata(
-                    output_sheet,
-                    target_row,
-                    fixed_columns + 1,
-                    display_type,
-                    comparison_type,
-                    date_label,
-                    file.name,
-                    mapping_note,
-                )
-                quantity = _quantity(_safe_value(source, source_row, 6))
-                if comparison_type in {"光联", "MPO"}:
-                    totals[(date_label, comparison_type)] += quantity
-                    display_totals[(date_label, display_type, comparison_type)] += quantity
+            _append_metadata(
+                output_sheet,
+                target_row,
+                fixed_columns + 1,
+                display_type,
+                comparison_type,
+                date_label,
+                file.name,
+                mapping_note,
+            )
+            quantity = _quantity(_safe_value(source, source_row, 6))
+            if comparison_type in {"光联", "MPO"}:
+                totals[(date_label, comparison_type)] += quantity
+                display_totals[(date_label, display_type, comparison_type)] += quantity
             target_row += 1
-            if not empty_row:
-                data_rows += 1
+            data_rows += 1
         _copy_merged_ranges(source, output_sheet, row_map, max_column)
         workbook.close()
 
