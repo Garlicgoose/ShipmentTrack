@@ -607,6 +607,40 @@ class NativeUiTests(unittest.TestCase):
         self.assertTrue(self.window.open_inspect_output.isEnabled())
         self.assertFalse(self.window.open_droplist_output.isEnabled())
 
+    def test_clicking_problem_row_shows_shipment_and_reason(self):
+        issue = SimpleNamespace(
+            shipment="SHIP-1001",
+            reason="运单错误；数量不对",
+            inspect_awbs=("AWB-OLD",),
+            droplist_awbs=("AWB-NEW",),
+            inspect_quantity=3,
+            droplist_quantity=4,
+        )
+        row = SimpleNamespace(
+            date="2026/10/19",
+            target_type="MPO",
+            inspect_quantity=3,
+            droplist_quantity=4,
+            difference=-1,
+            result="不一致",
+            shipment_issues=(issue,),
+        )
+        result = SimpleNamespace(
+            rows=(row,), inspect_files=1, droplist_files=1,
+            inspect_rows=1, droplist_rows=1, issues=(), shipment_issues=(issue,),
+            inspect_output_file=None, droplist_output_file=None,
+            unrecognized_files=(),
+        )
+        self.window._show_excel_result(result)
+        self.assertIn("点击查看", self.window.excel_table.item(0, 0).toolTip())
+        with mock.patch("ui.main_window.QMessageBox.warning") as warning:
+            self.window._show_excel_shipment_issues(0, 0)
+        message = warning.call_args.args[2]
+        self.assertIn("SHIP-1001", message)
+        self.assertIn("运单错误", message)
+        self.assertIn("AWB-OLD", message)
+        self.assertIn("数量不对", message)
+
     def test_excel_result_opens_review_dialog_for_unrecognized_files(self):
         unknown = Path(self.temp_dir.name) / "9.10 unknown.xlsx"
         result = SimpleNamespace(

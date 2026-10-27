@@ -89,6 +89,47 @@ def create_inspect_with_shipment_footer(path: Path):
     workbook.save(path)
 
 
+def create_shipment_inspect(path: Path, records):
+    workbook = Workbook()
+    sheet = workbook.active
+    headers = ["S/O", "Line", "P/N", "Company", "Country", "Packed quantity"]
+    headers.extend(["Amount", "Currency", "Weight", "Carton", "Carrier", "AWB#", "Delivery", "Shipment"])
+    sheet.append(headers)
+    for index, (shipment, awb, quantity) in enumerate(records, 1):
+        sheet.append([
+            f"SO-{index}", str(index * 10), f"P{index}", "Customer", "US", quantity,
+            "", "", "", "", "Carrier", awb, f"D-{index}", shipment,
+        ])
+    workbook.save(path)
+
+
+def create_shipment_droplist(path: Path, records):
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "Summary"
+    summary.append([])
+    summary.append([])
+    summary.append(["S/O", "Line", "P/N", "Company", "Country", "QTY", "By", "AWB#", "Delivery", "Shipment"])
+    detail = workbook.create_sheet("Data")
+    detail.append([])
+    detail.append([])
+    detail.append([
+        "S/O", "Line", "P/N", "Company", "Country", "QTY", "Amount", "Currency",
+        "Weight", "Box", "By", "AWB#", "Delivery", "Shipment", "Freight", "BOX", "Net",
+    ])
+    for index, (shipment, awb, quantity) in enumerate(records, 1):
+        summary.append([
+            f"SO-{index}", str(index * 10), f"P{index}", "Customer", "US", quantity,
+            "Carrier", awb, f"D-{index}", shipment,
+        ])
+        detail.append([
+            f"SO-{index}", str(index * 10), f"P{index}", "Customer", "US", quantity,
+            "", "", 1, f"B{index}", "Carrier", awb, f"D-{index}", shipment,
+        ])
+    detail.append(["Total", "", "", "", "", sum(record[2] for record in records)])
+    workbook.save(path)
+
+
 class ExcelReconcileTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -322,6 +363,56 @@ class ExcelReconcileTests(unittest.TestCase):
             "note before next detail",
             [merged.cell(row, 1).value for row in range(2, merged.max_row + 1)],
         )
+
+    def test_shipment_reconciliation_reports_missing_awb_and_quantity_reasons(self):
+        create_shipment_inspect(
+            self.inspect / "10.19 MPO.xlsx",
+            [
+                ("SHIP-OK", "AWB-OK", 2),
+                ("SHIP-AWB", "AWB-OLD", 3),
+                ("SHIP-QTY", "AWB-QTY", 4),
+                ("SHIP-MULTI", "AWB-M", 2),
+                ("SHIP-MULTI", "AWB-M", 3),
+                ("SHIP-INSPECT", "AWB-I", 6),
+            ],
+        )
+        day = self.droplist / "10.19 MPO"
+        day.mkdir()
+        create_shipment_droplist(
+            day / "Drop shipment list.xlsx",
+            [
+                ("SHIP-OK", "AWB-OK", 2),
+                ("SHIP-AWB", "AWB-NEW", 3),
+                ("SHIP-QTY", "AWB-QTY", 5),
+                ("SHIP-MULTI", "AWB-M", 5),
+                ("SHIP-DROP", "AWB-D", 7),
+            ],
+        )
+
+        result = merge_and_reconcile_excel(
+            self.inspect, self.droplist, self.root / "output", self.rules
+        )
+
+        issues = {issue.shipment: issue for issue in result.shipment_issues}
+        self.assertNotIn("SHIP-OK", issues)
+        self.assertNotIn("SHIP-MULTI", issues)
+        self.assertEqual("运单错误", issues["SHIP-AWB"].reason)
+        self.assertEqual("数量不对", issues["SHIP-QTY"].reason)
+        self.assertEqual("数据缺失（Droplist 缺少）", issues["SHIP-INSPECT"].reason)
+        self.assertEqual("数据缺失（检验表缺少）", issues["SHIP-DROP"].reason)
+        self.assertEqual(("AWB-OLD",), issues["SHIP-AWB"].inspect_awbs)
+        self.assertEqual(("AWB-NEW",), issues["SHIP-AWB"].droplist_awbs)
+        self.assertEqual(4, issues["SHIP-QTY"].inspect_quantity)
+        self.assertEqual(5, issues["SHIP-QTY"].droplist_quantity)
+        self.assertEqual(4, len(result.rows[0].shipment_issues))
+
+        workbook = load_workbook(result.inspect_output_file, data_only=False)
+        self.assertIn("Shipment异常", workbook.sheetnames)
+        output_rows = list(
+            workbook["Shipment异常"].iter_rows(min_row=2, values_only=True)
+        )
+        self.assertTrue(any(row[2] == "SHIP-AWB" and row[3] == "运单错误" for row in output_rows))
+        self.assertTrue(any(row[2] == "SHIP-QTY" and row[3] == "数量不对" for row in output_rows))
 
     def test_inspect_and_droplist_can_run_independently(self):
         create_inspect(self.inspect / "9.10 澳车.xlsx", [10])

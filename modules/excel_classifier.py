@@ -10,7 +10,7 @@ import unicodedata
 BUSINESS_TYPES = ("光联", "MPO")
 SAMPLE_LIMIT = 12
 IDENTIFIER_HEADER_RE = re.compile(
-    r"(?:tracking|awb|waybill|运单|提单)", re.IGNORECASE
+    r"(?:tracking|awb|waybill|shipment|运单|提单)", re.IGNORECASE
 )
 
 

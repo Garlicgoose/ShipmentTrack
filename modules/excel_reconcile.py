@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import unicodedata
@@ -31,6 +31,20 @@ DEFAULT_RECONCILE_YEAR = 2026
 
 
 @dataclass(frozen=True)
+class ShipmentIssue:
+    date: str
+    target_type: str
+    shipment: str
+    reason: str
+    inspect_quantity: Optional[float]
+    droplist_quantity: Optional[float]
+    inspect_awbs: tuple[str, ...] = ()
+    droplist_awbs: tuple[str, ...] = ()
+    inspect_sources: tuple[str, ...] = ()
+    droplist_sources: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ReconcileRow:
     date: str
     target_type: str
@@ -38,6 +52,7 @@ class ReconcileRow:
     droplist_quantity: Optional[float]
     difference: Optional[float]
     result: str
+    shipment_issues: tuple[ShipmentIssue, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -51,6 +66,16 @@ class ExcelReconcileResult:
     rows: tuple[ReconcileRow, ...]
     issues: tuple[tuple[str, str, str], ...]
     unrecognized_files: tuple[Path, ...] = ()
+    shipment_issues: tuple[ShipmentIssue, ...] = ()
+
+
+@dataclass
+class _ShipmentAggregate:
+    label: str
+    quantity: float = 0.0
+    awbs: set[str] = field(default_factory=set)
+    awb_labels: set[str] = field(default_factory=set)
+    sources: set[str] = field(default_factory=set)
 
 
 def extract_date_from_name(name: str) -> tuple[tuple[int, int, int], str]:
@@ -123,15 +148,18 @@ def _last_non_empty_row(sheet, start_row: int, max_column: int) -> int:
 
 def _header_column(sheet, header_row: int, *names: str) -> int:
     """Return the first column whose normalized header exactly matches a name."""
+    def normalized(value) -> str:
+        return "".join(
+            char
+            for char in unicodedata.normalize("NFKC", str(value or "")).casefold()
+            if char.isalnum()
+        )
+
     expected = {
-        re.sub(r"[^0-9a-z]+", "", unicodedata.normalize("NFKC", name).casefold())
-        for name in names
+        normalized(name) for name in names if normalized(name)
     }
     for column in range(1, sheet.max_column + 1):
-        value = unicodedata.normalize(
-            "NFKC", str(_safe_value(sheet, header_row, column) or "")
-        ).casefold()
-        if re.sub(r"[^0-9a-z]+", "", value) in expected:
+        if normalized(_safe_value(sheet, header_row, column)) in expected:
             return column
     return 0
 
@@ -162,6 +190,114 @@ def _inspection_source_rows(sheet, start_row: int, max_column: int) -> tuple[int
         for row in range(start_row, last_row + 1)
         if _safe_value(sheet, row, shipment_column) not in (None, "")
     )
+
+
+def _display_identifier(value) -> str:
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return unicodedata.normalize("NFKC", str(value or "")).strip()
+
+
+def _append_shipment_record(
+    index: dict[tuple[str, str, str], _ShipmentAggregate],
+    *,
+    date: str,
+    target_type: str,
+    shipment,
+    quantity,
+    awb,
+    source: str,
+) -> bool:
+    shipment_key = normalize_identifier(shipment)
+    if not date or target_type not in BUSINESS_TYPES or not shipment_key:
+        return False
+    key = (date, target_type, shipment_key)
+    aggregate = index.setdefault(
+        key, _ShipmentAggregate(_display_identifier(shipment) or shipment_key)
+    )
+    aggregate.quantity += _quantity(quantity)
+    awb_key = normalize_identifier(awb)
+    if awb_key:
+        aggregate.awbs.add(awb_key)
+        aggregate.awb_labels.add(_display_identifier(awb) or awb_key)
+    if source:
+        aggregate.sources.add(str(source))
+    return True
+
+
+def _index_shipment_sheet(
+    index,
+    sheet,
+    *,
+    header_row: int,
+    date: str,
+    target_type: str,
+    source_name: str,
+) -> int:
+    shipment_column = _header_column(sheet, header_row, "Shipment")
+    if not shipment_column:
+        return 0
+    awb_column = _header_column(
+        sheet, header_row, "AWB", "AWB#", "Tracking", "Tracking Number", "运单号"
+    )
+    quantity_column = _header_column(
+        sheet, header_row, "QTY", "Quantity", "Packed quantity"
+    ) or 6
+    count = 0
+    for row in range(header_row + 1, sheet.max_row + 1):
+        shipment = _safe_value(sheet, row, shipment_column)
+        if shipment in (None, ""):
+            continue
+        if _append_shipment_record(
+            index,
+            date=date,
+            target_type=target_type,
+            shipment=shipment,
+            quantity=_safe_value(sheet, row, quantity_column),
+            awb=_safe_value(sheet, row, awb_column) if awb_column else "",
+            source=f"{source_name} / {sheet.title} / 第 {row} 行",
+        ):
+            count += 1
+    return count
+
+
+def _build_shipment_issues(inspect_index, droplist_index) -> tuple[ShipmentIssue, ...]:
+    result = []
+    keys = sorted(
+        set(inspect_index) | set(droplist_index),
+        key=lambda item: (_date_sort_key(item[0]), item[1], item[2]),
+    )
+    for date, target_type, shipment_key in keys:
+        inspect = inspect_index.get((date, target_type, shipment_key))
+        droplist = droplist_index.get((date, target_type, shipment_key))
+        reasons = []
+        if inspect is None:
+            reasons.append("数据缺失（检验表缺少）")
+        elif droplist is None:
+            reasons.append("数据缺失（Droplist 缺少）")
+        else:
+            if inspect.awbs != droplist.awbs:
+                reasons.append("运单错误")
+            if abs(inspect.quantity - droplist.quantity) >= 1e-9:
+                reasons.append("数量不对")
+        if not reasons:
+            continue
+        source = inspect or droplist
+        result.append(
+            ShipmentIssue(
+                date=date,
+                target_type=target_type,
+                shipment=source.label,
+                reason="；".join(reasons),
+                inspect_quantity=inspect.quantity if inspect else None,
+                droplist_quantity=droplist.quantity if droplist else None,
+                inspect_awbs=tuple(sorted(inspect.awb_labels)) if inspect else (),
+                droplist_awbs=tuple(sorted(droplist.awb_labels)) if droplist else (),
+                inspect_sources=tuple(sorted(inspect.sources)) if inspect else (),
+                droplist_sources=tuple(sorted(droplist.sources)) if droplist else (),
+            )
+        )
+    return tuple(result)
 
 
 def _is_overseas_truck_filename(name: str) -> bool:
@@ -362,6 +498,7 @@ def _merge_inspect(
     issues: list[tuple[str, str, str]],
     unrecognized_files: list[Path],
     reference_cache,
+    shipment_index,
 ) -> tuple[
     dict[tuple[str, str], float],
     dict[tuple[str, str, str], float],
@@ -450,6 +587,14 @@ def _merge_inspect(
         if not date_label:
             issues.append(("检验表", file.name, "文件名和父文件夹均无法识别日期"))
 
+        shipment_column = _header_column(source, 1, "Shipment")
+        awb_column = _header_column(
+            source, 1, "AWB", "AWB#", "Tracking", "Tracking Number", "运单号"
+        )
+        quantity_column = _header_column(
+            source, 1, "QTY", "Quantity", "Packed quantity"
+        ) or 6
+
         # Shipment 是检验表真实业务行标识。尾部残留公式、备注和计算值不复制；
         # 明细区域里没有 Shipment 的空白/说明行同样不产生输出空行。
         for source_row in source_rows:
@@ -475,6 +620,16 @@ def _merge_inspect(
             if comparison_type in {"光联", "MPO"}:
                 totals[(date_label, comparison_type)] += quantity
                 display_totals[(date_label, display_type, comparison_type)] += quantity
+            if shipment_column:
+                _append_shipment_record(
+                    shipment_index,
+                    date=date_label,
+                    target_type=comparison_type,
+                    shipment=_safe_value(source, source_row, shipment_column),
+                    quantity=_safe_value(source, source_row, quantity_column),
+                    awb=_safe_value(source, source_row, awb_column) if awb_column else "",
+                    source=f"{file.name} / 第 {source_row} 行",
+                )
             target_row += 1
             data_rows += 1
         _copy_merged_ranges(source, output_sheet, row_map, max_column)
@@ -491,6 +646,7 @@ def _merge_droplist(
     issues: list[tuple[str, str, str]],
     unrecognized_files: list[Path],
     reference_cache,
+    shipment_index,
 ) -> tuple[dict[tuple[str, str], float], int, int]:
     candidates = _xlsx_files(folder, recursive=True, excluded=excluded)
     files = [
@@ -523,6 +679,18 @@ def _merge_droplist(
         if comparison_type not in {"光联", "MPO"}:
             issues.append(("Droplist", original_relative, "无法确认归总类别；未计入光联或 MPO"))
             unrecognized_files.append(file)
+
+        # The first sheet is the Droplist consolidated view (Shipment in J in
+        # the supplied business files).  Use it once as the canonical Shipment
+        # reconciliation source; detail sheets contain the same rows again.
+        summary_indexed = _index_shipment_sheet(
+            shipment_index,
+            workbook.worksheets[0],
+            header_row=3,
+            date=date_label,
+            target_type=comparison_type,
+            source_name=original_relative,
+        )
 
         file_rows = 0
         candidate_sheet_count = 0
@@ -579,6 +747,21 @@ def _merge_droplist(
                     totals[(date_label, comparison_type)] += _quantity(
                         _safe_value(source, source_row, 6)
                     )
+                if not summary_indexed:
+                    shipment_column = _header_column(source, 3, "Shipment")
+                    awb_column = _header_column(
+                        source, 3, "AWB", "AWB#", "Tracking", "Tracking Number", "运单号"
+                    )
+                    if shipment_column:
+                        _append_shipment_record(
+                            shipment_index,
+                            date=date_label,
+                            target_type=comparison_type,
+                            shipment=_safe_value(source, source_row, shipment_column),
+                            quantity=_safe_value(source, source_row, 6),
+                            awb=_safe_value(source, source_row, awb_column) if awb_column else "",
+                            source=f"{original_relative} / {sheet_name} / 第 {source_row} 行",
+                        )
                 target_row += 1
                 data_rows += 1
                 file_rows += 1
@@ -605,8 +788,12 @@ def _build_reconcile_rows(
     droplist_totals,
     inspect_enabled: bool = True,
     droplist_enabled: bool = True,
+    shipment_issues: tuple[ShipmentIssue, ...] = (),
 ) -> tuple[ReconcileRow, ...]:
     rows = []
+    issues_by_group = defaultdict(list)
+    for issue in shipment_issues:
+        issues_by_group[(issue.date, issue.target_type)].append(issue)
     keys = sorted(
         {
             key for key in set(inspect_totals) | set(droplist_totals)
@@ -627,10 +814,18 @@ def _build_reconcile_rows(
         elif (date, target_type) not in droplist_totals:
             result = "Droplist 缺少数据"
         elif abs(difference) < 1e-9:
-            result = "一致"
+            result = "明细异常" if issues_by_group[(date, target_type)] else "一致"
         else:
             result = "不一致"
-        rows.append(ReconcileRow(date, target_type, inspect, droplist, difference, result))
+        rows.append(ReconcileRow(
+            date,
+            target_type,
+            inspect,
+            droplist,
+            difference,
+            result,
+            tuple(issues_by_group[(date, target_type)]),
+        ))
     return tuple(rows)
 
 
@@ -638,7 +833,7 @@ def _style_output(workbook) -> None:
     dark_fill = PatternFill("solid", fgColor="173F5F")
     light_fill = PatternFill("solid", fgColor="EAF2F7")
     # 合并明细页保留源文件格式；只格式化本程序新建的汇总和异常页。
-    for sheet_name in ("类型箱数", "核对汇总", "异常文件"):
+    for sheet_name in ("类型箱数", "核对汇总", "Shipment异常", "异常文件"):
         if sheet_name not in workbook.sheetnames:
             continue
         sheet = workbook[sheet_name]
@@ -708,6 +903,8 @@ def merge_and_reconcile_excel(
     issues: list[tuple[str, str, str]] = []
     unrecognized_files: list[Path] = []
     reference_cache = defaultdict(lambda: {category: set() for category in BUSINESS_TYPES})
+    inspect_shipment_index: dict[tuple[str, str, str], _ShipmentAggregate] = {}
+    droplist_shipment_index: dict[tuple[str, str, str], _ShipmentAggregate] = {}
 
     inspect_workbook = Workbook() if inspect_folder else None
     droplist_workbook = Workbook() if droplist_folder else None
@@ -718,25 +915,31 @@ def merge_and_reconcile_excel(
         droplist_sheet.title = "合并Droplist"
         droplist_totals, droplist_files, droplist_rows = _merge_droplist(
             droplist_folder, droplist_sheet, mapper, excluded, issues,
-            unrecognized_files, reference_cache
+            unrecognized_files, reference_cache, droplist_shipment_index
         )
     if inspect_workbook is not None:
         inspect_sheet = inspect_workbook.active
         inspect_sheet.title = "合并检验表"
         inspect_totals, display_totals, inspect_files, inspect_rows = _merge_inspect(
             inspect_folder, inspect_sheet, mapper, excluded, issues,
-            unrecognized_files, reference_cache
+            unrecognized_files, reference_cache, inspect_shipment_index
         )
     if progress_callback:
         progress_callback(45)
     if progress_callback:
         progress_callback(80)
 
+    shipment_issues = (
+        _build_shipment_issues(inspect_shipment_index, droplist_shipment_index)
+        if inspect_folder is not None and droplist_folder is not None
+        else ()
+    )
     rows = _build_reconcile_rows(
         inspect_totals,
         droplist_totals,
         inspect_enabled=inspect_folder is not None,
         droplist_enabled=droplist_folder is not None,
+        shipment_issues=shipment_issues,
     )
     if inspect_folder is not None and droplist_folder is not None:
         for row in rows:
@@ -766,6 +969,26 @@ def merge_and_reconcile_excel(
             )
         )
 
+    if shipment_issues:
+        shipment_sheet = summary_workbook.create_sheet("Shipment异常")
+        shipment_sheet.append((
+            "日期", "类型", "Shipment", "原因", "检验表数量", "Droplist数量",
+            "检验表运单", "Droplist运单", "检验表来源", "Droplist来源",
+        ))
+        for issue in shipment_issues:
+            shipment_sheet.append((
+                issue.date,
+                issue.target_type,
+                issue.shipment,
+                issue.reason,
+                issue.inspect_quantity,
+                issue.droplist_quantity,
+                "、".join(issue.inspect_awbs),
+                "、".join(issue.droplist_awbs),
+                "；".join(issue.inspect_sources),
+                "；".join(issue.droplist_sources),
+            ))
+
     issue_sheet = summary_workbook.create_sheet("异常文件")
     issue_sheet.append(("来源", "文件", "问题"))
     for issue in issues:
@@ -789,4 +1012,5 @@ def merge_and_reconcile_excel(
         rows=rows,
         issues=tuple(issues),
         unrecognized_files=tuple(dict.fromkeys(unrecognized_files)),
+        shipment_issues=shipment_issues,
     )

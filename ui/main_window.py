@@ -616,6 +616,7 @@ class MainWindow(QMainWindow):
         )
         self.excel_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.excel_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.excel_table.cellClicked.connect(self._show_excel_shipment_issues)
         self.excel_table.setShowGrid(False)
         self.excel_table.setMinimumHeight(390)
         self.excel_table.verticalHeader().setVisible(False)
@@ -1208,15 +1209,20 @@ class MainWindow(QMainWindow):
                 "" if row_data.difference is None else f"{row_data.difference:g}",
                 row_data.result,
             )
+            shipment_issues = tuple(getattr(row_data, "shipment_issues", ()) or ())
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
+                if shipment_issues:
+                    item.setData(Qt.UserRole, shipment_issues)
+                    item.setToolTip("点击查看 Shipment 和异常原因")
                 if column == 5:
                     item.setForeground(QColor("#29845A" if row_data.result == "一致" else "#B54444"))
                 self.excel_table.setItem(row, column, item)
+        shipment_issue_count = len(getattr(result, "shipment_issues", ()) or ())
         self.excel_summary.setText(
             f"检验表 {result.inspect_files} 个 / {result.inspect_rows} 行　"
             f"Droplist {result.droplist_files} 个 / {result.droplist_rows} 行　"
-            f"异常文件 {len(result.issues)} 个"
+            f"异常文件 {len(result.issues)} 个　Shipment 异常 {shipment_issue_count} 个"
         )
         self._excel_output_paths = {}
         if result.inspect_output_file:
@@ -1229,6 +1235,30 @@ class MainWindow(QMainWindow):
                 result.unrecognized_files, self
             )
             self._unrecognized_dialog.open()
+
+    def _show_excel_shipment_issues(self, row, _column):
+        item = self.excel_table.item(row, 0)
+        shipment_issues = tuple(item.data(Qt.UserRole) or ()) if item else ()
+        if not shipment_issues:
+            return
+        lines = []
+        for issue in shipment_issues:
+            detail = f"Shipment {issue.shipment}：{issue.reason}"
+            if issue.reason == "运单错误" or "运单错误" in issue.reason:
+                inspect_awb = "、".join(issue.inspect_awbs) or "空"
+                droplist_awb = "、".join(issue.droplist_awbs) or "空"
+                detail += f"\n  检验表运单：{inspect_awb}\n  Droplist运单：{droplist_awb}"
+            if issue.reason == "数量不对" or "数量不对" in issue.reason:
+                detail += (
+                    f"\n  检验表数量：{issue.inspect_quantity:g}"
+                    f"；Droplist数量：{issue.droplist_quantity:g}"
+                )
+            lines.append(detail)
+        QMessageBox.warning(
+            self,
+            "Shipment 核对异常",
+            "\n\n".join(lines),
+        )
 
     def _excel_finished(self, ok, error):
         self.excel_run_button.setEnabled(True)
