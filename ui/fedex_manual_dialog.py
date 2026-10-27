@@ -19,7 +19,6 @@ from modules.fedex_pod_segmented import (
     ITEM_INTERVAL_SECONDS,
     SEGMENTED_MAX_JOBS,
     SEGMENT_PAUSE_SECONDS,
-    SITE_COOLDOWN_SECONDS,
     plan_segments,
     run_segmented_auto,
 )
@@ -235,6 +234,7 @@ class SegmentedAutoPodWorker(QThread):
     completed = Signal(object)
     queue_changed = Signal()
     finished_status = Signal(str)
+    failed = Signal(str)
 
     def __init__(self, queue_path, output_dir, edge_path="", parent=None):
         super().__init__(parent)
@@ -281,8 +281,12 @@ class SegmentedAutoPodWorker(QThread):
                 stop_requested=self.stop_event.is_set,
                 delay=self._interruptible_delay,
             )
-            if outcome.site_blocked and outcome.paused:
-                message = "网站恢复探测仍失败；分段自动下载已停止，当前票在暂停列表"
+            if outcome.reason:
+                message = (
+                    f"分段自动下载失败并停止：{outcome.failed_number}\n{outcome.reason}\n"
+                    f"已完成 {outcome.completed} 票，失败票已进入暂停列表。"
+                )
+                self.failed.emit(message)
             elif outcome.stopped:
                 message = "分段自动下载已停止，队列进度已保存"
             else:
@@ -292,7 +296,9 @@ class SegmentedAutoPodWorker(QThread):
                 )
             self.finished_status.emit(message)
         except Exception as exc:
-            self.finished_status.emit(f"分段自动下载无法继续：{exc}")
+            message = f"分段自动下载无法继续：{exc}"
+            self.failed.emit(message)
+            self.finished_status.emit(message)
         finally:
             if session is not None:
                 session.close()
@@ -447,8 +453,7 @@ class FedExManualDialog(QDialog):
             "FedEx 自动分段下载",
             f"本次最多处理 {SEGMENTED_MAX_JOBS} 票，当前计划：{plan_text}。\n"
             f"票间约 {ITEM_INTERVAL_SECONDS} 秒，段间休息 "
-            f"{SEGMENT_PAUSE_SECONDS // 60} 分钟；网站异常会冷却 "
-            f"{SITE_COOLDOWN_SECONDS // 3600} 小时后单票探测。\n\n"
+            f"{SEGMENT_PAUSE_SECONDS // 60} 分钟；使用官网直链，任一票失败会立即停止并弹窗。\n\n"
             "是否开始自动分段下载？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
@@ -463,6 +468,7 @@ class FedExManualDialog(QDialog):
         self.worker.completed.connect(lambda _result: self._refresh_queue())
         self.worker.queue_changed.connect(self._refresh_queue)
         self.worker.finished_status.connect(self._finished)
+        self.worker.failed.connect(self._show_segmented_failure)
         self.start_button.setEnabled(False)
         self.segmented_button.setEnabled(False)
         self.auto_button.setEnabled(False)
@@ -593,6 +599,9 @@ class FedExManualDialog(QDialog):
         self.auto_button.setEnabled(has_ready)
         self.segmented_button.setEnabled(has_ready)
         self.queue_finished.emit()
+
+    def _show_segmented_failure(self, message):
+        QMessageBox.warning(self, "FedEx 分段下载已停止", str(message))
 
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():

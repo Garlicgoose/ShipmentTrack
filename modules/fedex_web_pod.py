@@ -557,6 +557,23 @@ class FedExEdgePodSession:
             f"最后错误：{last_error}"
         )
 
+    def _load_direct_page(self, tracking_number: str) -> None:
+        """Open one official result URL without touching the tracking form."""
+        self.log(f"FedEx 直链查询：{tracking_number}")
+        self.page.goto(
+            TRACKING_RESULT_URL.format(quote(tracking_number)),
+            wait_until="domcontentloaded",
+            timeout=self.timeout_ms,
+        )
+        try:
+            _wait_for_main_page(self.page, tracking_number, self.timeout_seconds)
+        except Exception as exc:
+            if _is_system_error_page(self.page):
+                raise FedExWebPodError(
+                    f"FedEx 直链返回网站异常：{tracking_number}"
+                ) from exc
+            raise
+
     def _pin_chinese_english_locale(self) -> None:
         """固定 CN 英文站语言：US 站不稳，详情经常刷不出来。"""
         try:
@@ -580,14 +597,14 @@ class FedExEdgePodSession:
         except Exception:
             pass
 
-    def download(self, tracking_number: str) -> FedExWebPodResult:
+    def _download_with_loader(self, tracking_number: str, loader) -> FedExWebPodResult:
         number = normalize_tracking_number(tracking_number)
         main_pdf, detail_pdf = output_paths(self.output_dir, number)
         if not self.overwrite and is_valid_pdf(main_pdf) and is_valid_pdf(detail_pdf):
             return FedExWebPodResult(number, True, str(main_pdf), str(detail_pdf))
         try:
             self.start()
-            self._load_main_page(number)
+            loader(number)
             main_text = _body_text(self.page)
             _print_current_page(self.context, self.page, main_pdf)
             _open_details(self.page, main_text, self.timeout_seconds, number)
@@ -601,6 +618,13 @@ class FedExEdgePodSession:
                 str(detail_pdf) if is_valid_pdf(detail_pdf) else "",
                 str(exc),
             )
+
+    def download(self, tracking_number: str) -> FedExWebPodResult:
+        return self._download_with_loader(tracking_number, self._load_main_page)
+
+    def download_direct(self, tracking_number: str) -> FedExWebPodResult:
+        """Segmented mode entry point: direct official URL, no form lookup."""
+        return self._download_with_loader(tracking_number, self._load_direct_page)
 
     def close(self) -> None:
         """关掉这个 Edge（连同子进程），不在桌面上留窗口。"""

@@ -7,7 +7,6 @@ from modules.fedex_pod_queue import FedExPodQueue
 from modules.fedex_pod_segmented import (
     ITEM_INTERVAL_SECONDS,
     SEGMENT_PAUSE_SECONDS,
-    SITE_COOLDOWN_SECONDS,
     plan_segments,
     run_segmented_auto,
 )
@@ -39,7 +38,7 @@ class SegmentedAutoPodTests(unittest.TestCase):
         numbers = [f"54196433{index:04d}" for index in range(105)]
         self.queue.add_numbers(numbers)
         session = mock.Mock()
-        session.download.side_effect = self._success
+        session.download_direct.side_effect = self._success
         outcome = run_segmented_auto(
             self.queue,
             session,
@@ -48,53 +47,55 @@ class SegmentedAutoPodTests(unittest.TestCase):
         )
         self.assertEqual(100, outcome.target)
         self.assertEqual(100, outcome.completed)
-        self.assertEqual(100, session.download.call_count)
+        self.assertEqual(100, session.download_direct.call_count)
+        session.download.assert_not_called()
         self.assertEqual(5, self.queue.counts()["pending"])
 
     def test_more_than_fifty_uses_twenty_five_job_segments_and_pauses(self):
         numbers = [f"54196433{index:04d}" for index in range(51)]
         self.queue.add_numbers(numbers)
         session = mock.Mock()
-        session.download.side_effect = self._success
+        session.download_direct.side_effect = self._success
         delays = []
         outcome = run_segmented_auto(self.queue, session, delay=delays.append)
         self.assertEqual(3, outcome.segments_completed)
         self.assertEqual(2, delays.count(SEGMENT_PAUSE_SECONDS))
         self.assertEqual(48, delays.count(ITEM_INTERVAL_SECONDS))
 
-    def test_site_block_cools_down_then_probes_same_job(self):
+    def test_first_site_failure_stops_without_cooldown_or_probe(self):
         self.queue.add_numbers(["541964339019", "541964339020"])
         session = mock.Mock()
-        session.download.side_effect = [
+        session.download_direct.side_effect = [
             FedExWebPodResult("541964339019", False, error="FedEx system-error"),
-            self._success("541964339019"),
-            self._success("541964339020"),
         ]
         delays = []
         outcome = run_segmented_auto(self.queue, session, delay=delays.append)
-        self.assertEqual(2, outcome.completed)
-        self.assertEqual(0, outcome.paused)
-        self.assertEqual(3, outcome.requests)
-        self.assertIn(SITE_COOLDOWN_SECONDS, delays)
-        self.assertEqual("completed", self.queue.get("541964339019").state)
-
-    def test_second_block_during_probe_stops_and_keeps_remaining_queue(self):
-        self.queue.add_numbers(["541964339019", "541964339020"])
-        session = mock.Mock()
-        session.download.side_effect = [
-            FedExWebPodResult("541964339019", False, error="请求过多"),
-            FedExWebPodResult("541964339019", False, error="请求过多"),
-        ]
-        outcome = run_segmented_auto(self.queue, session, delay=lambda _seconds: None)
-        self.assertTrue(outcome.site_blocked)
+        self.assertEqual(0, outcome.completed)
         self.assertEqual(1, outcome.paused)
+        self.assertEqual(1, outcome.requests)
+        self.assertEqual([], delays)
+        self.assertTrue(outcome.site_blocked)
+        self.assertEqual("541964339019", outcome.failed_number)
         self.assertEqual("paused", self.queue.get("541964339019").state)
         self.assertEqual("pending", self.queue.get("541964339020").state)
 
-    def test_single_job_failure_does_not_stop_other_jobs(self):
+    def test_non_site_failure_also_stops_and_keeps_remaining_queue(self):
         self.queue.add_numbers(["541964339019", "541964339020"])
         session = mock.Mock()
-        session.download.side_effect = [
+        session.download_direct.side_effect = [
+            FedExWebPodResult("541964339019", False, error="详情按钮未出现"),
+        ]
+        outcome = run_segmented_auto(self.queue, session, delay=lambda _seconds: None)
+        self.assertFalse(outcome.site_blocked)
+        self.assertEqual(1, outcome.paused)
+        self.assertEqual("详情按钮未出现", outcome.reason)
+        self.assertEqual("paused", self.queue.get("541964339019").state)
+        self.assertEqual("pending", self.queue.get("541964339020").state)
+
+    def test_single_job_failure_does_not_query_later_jobs(self):
+        self.queue.add_numbers(["541964339019", "541964339020"])
+        session = mock.Mock()
+        session.download_direct.side_effect = [
             FedExWebPodResult("541964339019", False, error="详情按钮未出现"),
             self._success("541964339020"),
         ]
@@ -102,9 +103,10 @@ class SegmentedAutoPodTests(unittest.TestCase):
             self.queue, session, item_interval_seconds=0
         )
         self.assertEqual(1, outcome.paused)
-        self.assertEqual(1, outcome.completed)
+        self.assertEqual(0, outcome.completed)
+        self.assertEqual(1, session.download_direct.call_count)
         self.assertEqual("paused", self.queue.get("541964339019").state)
-        self.assertEqual("completed", self.queue.get("541964339020").state)
+        self.assertEqual("pending", self.queue.get("541964339020").state)
 
 
 if __name__ == "__main__":

@@ -64,6 +64,46 @@ class FedExWebPodTests(unittest.TestCase):
             )
             self.assertEqual(2, render.call_count)
 
+    def test_direct_download_never_uses_tracking_form(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(web_pod, "find_edge", return_value="msedge.exe"):
+            session = web_pod.FedExEdgePodSession(
+                mock.Mock(), temp_dir, minimize_browser=False
+            )
+            session.page = mock.Mock()
+            session.context = mock.Mock()
+
+            def write_pdf(_context, _page, destination):
+                destination.write_bytes(b"%PDF-1.7\n" + b"x" * 1100)
+
+            with mock.patch.object(session, "start"), \
+                 mock.patch.object(session, "_load_direct_page") as direct, \
+                 mock.patch.object(session, "_load_main_page") as form_flow, \
+                 mock.patch.object(web_pod, "_body_text", return_value="main"), \
+                 mock.patch.object(web_pod, "_open_details"), \
+                 mock.patch.object(web_pod, "_print_current_page", side_effect=write_pdf):
+                result = session.download_direct("519470439011")
+
+            self.assertTrue(result.ok)
+            direct.assert_called_once_with("519470439011")
+            form_flow.assert_not_called()
+
+    def test_direct_page_uses_official_result_url_without_form_submission(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(web_pod, "find_edge", return_value="msedge.exe"):
+            session = web_pod.FedExEdgePodSession(
+                mock.Mock(), temp_dir, minimize_browser=False
+            )
+            session.page = mock.Mock()
+            session.context = mock.Mock()
+            with mock.patch.object(web_pod, "_wait_for_main_page"), \
+                 mock.patch.object(web_pod, "_submit_tracking_form") as submit:
+                session._load_direct_page("519470439011")
+            submit.assert_not_called()
+            url = session.page.goto.call_args.args[0]
+            self.assertIn("trknbr=519470439011", url)
+            self.assertIn("locale=en_CN", url)
+
     def test_invalid_pdf_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "bad.pdf"

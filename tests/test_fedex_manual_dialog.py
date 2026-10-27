@@ -56,8 +56,18 @@ class ManualDialogTests(unittest.TestCase):
                 os.path.join(folder, "queue.json"), folder
             )
             worker.stop_event.set()
-            worker._interruptible_delay(10_800)
+            worker._interruptible_delay(300)
             self.assertTrue(worker.stop_event.is_set())
+
+    def test_segmented_failure_uses_visible_warning(self):
+        with tempfile.TemporaryDirectory() as folder:
+            dialog = FedExManualDialog(["541964339019"], folder)
+            with mock.patch("ui.fedex_manual_dialog.QMessageBox.warning") as warning:
+                dialog._show_segmented_failure("直链失败")
+            warning.assert_called_once_with(
+                dialog, "FedEx 分段下载已停止", "直链失败"
+            )
+            dialog.close()
 
     def test_experimental_auto_mode_is_opt_in(self):
         with tempfile.TemporaryDirectory() as folder:
