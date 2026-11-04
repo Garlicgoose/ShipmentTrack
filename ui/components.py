@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QPainter
 from PySide6.QtWidgets import (
     QAbstractButton,
     QDialog,
@@ -153,24 +153,20 @@ class ClickableFrame(QFrame):
         super().mouseReleaseEvent(event)
 
 
-class ProfilePopup(QDialog):
+class AppInfoPopup(QDialog):
     changelog_requested = Signal()
     update_requested = Signal()
 
-    def __init__(self, avatar_path, name, version="", features=(), parent=None):
+    def __init__(self, version="", features=(), parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
-        self.setObjectName("profilePopup")
-        self.setFixedSize(310, 292)
+        self.setObjectName("appInfoPopup")
+        self.setFixedSize(310, 250)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(7)
-        avatar = QLabel()
-        avatar.setAlignment(Qt.AlignCenter)
-        avatar.setPixmap(circular_pixmap(avatar_path, 64))
-        label = QLabel(name)
-        label.setObjectName("popupProfileName")
+        label = QLabel("ShipmentTrack")
+        label.setObjectName("popupAppName")
         label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(avatar)
         layout.addWidget(label)
         if version:
             version_label = QLabel(version)
@@ -228,27 +224,3 @@ def position_popup(popup, anchor):
     point = anchor.mapToGlobal(QPoint(anchor.width() + 8, anchor.height()))
     popup.move(point.x() - popup.width(), point.y() - popup.height() - 4)
     popup.show()
-
-
-def circular_pixmap(path, size):
-    source = QPixmap(str(path))
-    if source.isNull():
-        fallback = QPixmap(size, size)
-        fallback.fill(QColor("#2AB8AE"))
-        return fallback
-    source = source.scaled(
-        size,
-        size,
-        Qt.KeepAspectRatioByExpanding,
-        Qt.SmoothTransformation,
-    )
-    output = QPixmap(size, size)
-    output.fill(Qt.transparent)
-    painter = QPainter(output)
-    painter.setRenderHint(QPainter.Antialiasing)
-    path_shape = QPainterPath()
-    path_shape.addEllipse(0, 0, size, size)
-    painter.setClipPath(path_shape)
-    painter.drawPixmap(0, 0, source)
-    painter.end()
-    return output

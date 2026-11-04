@@ -1,9 +1,9 @@
-# ShipmentTrack v0.92
+# ShipmentTrack v1.0
 
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
 
-0.92 增加 Shipment 逐项核对，修正检验表尾部空行，并把 FedEx 分段下载改为官网直链。
+1.0 保留 0.92 的 Shipment 逐项核对和 FedEx 官网直链下载，并将版本、更新日志和检查更新集中到“应用信息”。
 
 ## 运行（源码）
 ```
@@ -19,7 +19,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -DistRoot E:\ShipmentTrackBui
 # 产物: 指定目录\Shipment Track\Shipment Track.exe（整文件夹拷贝使用）
 # Edge / Google Chrome 由用户在设置页选择并自动检测
 # 注意: build.ps1 必须保存为 UTF-8 with BOM（PS5.1 中文乱码问题）
-# 旧 dist/data 有设置或授权缓存时构建会拒绝覆盖，务必指定独立空目录
+# 旧 dist/data 有设置或本地运行数据时构建会拒绝覆盖，务必指定独立空目录
 ```
 
 ## 页面
@@ -56,7 +56,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -DistRoot E:\ShipmentTrackBui
   会被安全忽略，不会移动、删除或重命名来源文件夹。
 - 映射设置提供包含/完全/正则匹配方式、真实文件名预览和推荐规则补充；
   使用说明见 `docs/FILENAME_MAPPING_GUIDE.md`。
-- 更新：启动后从 GitHub 静默检查新版本；头像弹窗可查看更新日志或手动检查。
+- 更新：启动后静默检查新版本；左下角“应用信息”可查看版本、更新日志或手动检查。
 - 跟踪页的“结果操作”集中放置结果文件、POD 抽查、整理和 FedEx 任务中心入口；
   右侧固定栏在窄窗口自动折叠；“运行日志”在表格下方独立显示，不会让工具栏覆盖表格。
 
@@ -130,20 +130,12 @@ Secret 和 EI 密码使用当前 Windows 用户的 DPAPI 加密后写入设置�
 - 例如 `9.22MPO国外FEDEX自提—空运出货资料` 可由 `MPO国外FEDEX自提`
   规则归为 `FedEx自提 / MPO`。
 
-## 授权
-- 使用 Ed25519 公钥验证 GitHub 共享授权文件，GitHub 中保存机器码摘要和开关。
-- 在线关闭授权后，下次联网启动即生效；断网只允许使用最近一次成功验证后的
-  24 小时缓存，不再使用本地截止日期授权。
-- 授权失败统一显示普通服务错误；授权核心在正式打包时由 PyArmor 混淆。
-- 管理员操作见 `docs/AUTHORIZATION.md`。
-
 ## 目录
 ```
-main.py / units.py / license.py / ShipmentTrack.spec
+main.py / units.py / ShipmentTrack.spec
 modules/（跟踪、设置、Excel 合并与核对）
-ui/（PySide6 原生界面） / assets/（图标与本地头像）
+ui/（PySide6 原生界面） / assets/（应用图标）
 docs/ARCHITECTURE.md（框架与目录职责）
-E:/python_modules/authorization（共享授权与机器码包）
 data/filename_mappings.json（由设置页维护）
 data/delivery_status_mappings.json（DHL/EI/DSV 额外抵达状态）
 data/settings.json（界面设置，首次保存后生成）
@@ -157,7 +149,7 @@ requirements.txt（经过打包验证的依赖版本）
 - DSV 详情页依次尝试实际结果链接、文字元素和结果卡片位置点击。
 - DHL 的 Delivered 只允许来自当前状态区域，历史事件全文不再确认送达。
 - 设置页可直接验证 FedEx API；OAuth token 按 API 凭据隔离。
-- 更新文件从 GitHub 下载后必须通过 SHA-256 校验，程序退出后再安全替换 EXE。
+- 更新文件下载后必须通过 SHA-256 校验，程序退出后再安全替换 EXE。
 
 ## 1.2 POD 抽查
 

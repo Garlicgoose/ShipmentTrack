@@ -23,7 +23,6 @@ if not (authorization_source / "authorization" / "__init__.py").is_file():
 datas = [
     ("assets/app_icon.ico", "assets"),
     ("assets/app_icon.png", "assets"),
-    ("assets/github_avatar.jpg", "assets"),
     ("CHANGELOG.md", "."),
     ("docs/FILENAME_MAPPING_GUIDE.md", "docs"),
 ]

@@ -12,7 +12,7 @@ QMainWindow, QWidget#appRoot { background: #F4F7FA; }
 QFrame#sidebar { background: #102A43; border: none; }
 QLabel#profileName { color: white; font-weight: 600; }
 QLabel#profileCaption { color: #90A9BC; font-size: 11px; }
-QLabel#popupProfileName { font-size: 15px; font-weight: 700; color: #172B3C; }
+QLabel#popupAppName { font-size: 15px; font-weight: 700; color: #172B3C; }
 QLabel#popupVersion { color: #557084; font-size: 12px; }
 QLabel#popupFeature { color: #304B60; font-size: 12px; }
 QFrame#popupSeparator { color: #E1E9EE; }
@@ -177,9 +177,9 @@ QTabBar::tab {
 QTabBar::tab:hover { color: #173F5F; }
 QTabBar::tab:selected { color: #087A74; border-bottom-color: #0B8F87; font-weight: 700; }
 
-QFrame#profileButton { border-radius: 8px; background: transparent; }
-QFrame#profileButton:hover { background: #183B57; }
-QDialog#profilePopup { background: white; border: 1px solid #D7E2EA; border-radius: 12px; }
+QPushButton#appInfoButton { min-height: 38px; border-radius: 8px; color: #EAF2F7; background: transparent; border: 1px solid #47647A; }
+QPushButton#appInfoButton:hover { background: #183B57; }
+QDialog#appInfoPopup { background: white; border: 1px solid #D7E2EA; border-radius: 12px; }
 
 QScrollArea { border: none; background: transparent; }
 QScrollArea > QWidget > QWidget { background: transparent; }

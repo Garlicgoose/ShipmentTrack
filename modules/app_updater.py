@@ -16,15 +16,14 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "0.92"
+CURRENT_VERSION = "1.0"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
-    "检验表以最后一个有效 Shipment 为截止，去除尾部公式和非明细空行",
-    "按 Shipment 核对检验表与 Droplist，区分数据缺失、运单错误和数量不对",
-    "核对异常可点击查看 Shipment 和原因，并写入 Shipment异常工作表",
-    "FedEx 分段下载改用官网直链；任一票失败立即停止并弹窗提醒",
+    "左下角改为应用信息入口，集中显示当前版本、更新日志和检查更新",
+    "修复独立发布包缺少运行组件时无法启动的问题",
+    "完善 0.92 的 Shipment 核对与 FedEx 官网直链下载功能",
 )
 
 

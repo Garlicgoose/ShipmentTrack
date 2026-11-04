@@ -54,9 +54,10 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn('auth_obfuscated / "authorization"', spec)
         self.assertIn('"pyarmor_runtime_000000"', spec)
 
-    def test_spec_includes_profile_asset_and_excludes_heavy_optional_modules(self):
+    def test_spec_excludes_personal_asset_and_heavy_optional_modules(self):
         spec = (ROOT / "ShipmentTrack.spec").read_text("utf-8")
-        self.assertIn("assets/github_avatar.jpg", spec)
+        self.assertNotIn("assets/github_avatar.jpg", spec)
+        self.assertFalse((ROOT / "assets" / "github_avatar.jpg").exists())
         self.assertIn("docs/FILENAME_MAPPING_GUIDE.md", spec)
         self.assertIn('"modules.dhl_module"', spec)
         self.assertIn('"modules.fedex_web_pod"', spec)
@@ -82,7 +83,7 @@ class PackagingConfigTests(unittest.TestCase):
         guide = (ROOT / "使用说明.txt").read_text("utf-8")
         self.assertIn("Microsoft Edge 或 Google Chrome", readme)
         self.assertIn("不需要另行下载 Chromium", guide)
-        self.assertIn("ShipmentTrack v0.92", readme)
+        self.assertIn("ShipmentTrack v1.0", readme)
         self.assertIn("一键整理 POD", readme)
         self.assertIn("保存当前页面 PDF", readme)
         self.assertIn("单次票数（1–1000，默认 10）", readme)
@@ -109,9 +110,10 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("SHA-256", readme)
         self.assertIn("`类型箱数` Sheet", readme)
         self.assertIn("至少一个文件夹", guide)
-        self.assertIn("Ed25519 公钥", readme)
-        self.assertIn("24 小时缓存", readme)
-        self.assertIn("经过数字签名", guide)
+        self.assertNotIn("GitHub", readme)
+        self.assertNotIn("授权", readme)
+        self.assertNotIn("GitHub", guide)
+        self.assertNotIn("授权", guide)
         authorization = (ROOT / "docs" / "AUTHORIZATION.md").read_text("utf-8")
         self.assertIn("ed25519-private.key", authorization)
         self.assertIn("--revision 2", authorization)
@@ -134,7 +136,8 @@ class PackagingConfigTests(unittest.TestCase):
         script = (ROOT / "build.ps1").read_text("utf-8-sig")
         self.assertIn('[string]$DistRoot = ""', script)
         self.assertIn("输出目录包含运行数据", script)
-        self.assertIn("'settings.json', 'machine_id', 'authorization.cache'", script)
+        for name in ("settings.json", "machine_id", "authorization.cache", "authorization.revision"):
+            self.assertIn(name, script)
 
     def test_build_trims_unused_runtime_files(self):
         script = (ROOT / "build.ps1").read_text("utf-8-sig")
@@ -145,6 +148,13 @@ class PackagingConfigTests(unittest.TestCase):
         self.assertIn("collect_all_imports", trim)
         self.assertIn("PySide6/translations", trim)
         self.assertIn("playwright/driver/package/lib/vite", trim)
+
+    def test_build_creates_complete_versioned_windows_archive(self):
+        script = (ROOT / "build.ps1").read_text("utf-8-sig")
+        self.assertIn("Compress-Archive -LiteralPath $dist", script)
+        self.assertIn("ShipmentTrack-{0}-windows-x64.zip", script)
+        self.assertIn("CURRENT_VERSION", script)
+        self.assertIn("Release archive was not created", script)
 
     def test_packaged_app_has_offline_smoke_mode(self):
         main_source = (ROOT / "main.py").read_text("utf-8")

@@ -17,7 +17,7 @@ $distBase = if ($DistRoot) { [IO.Path]::GetFullPath($DistRoot) } else { Join-Pat
 $dist = Join-Path $distBase "Shipment Track"
 $dataDir = Join-Path $dist "data"
 if (Test-Path $dataDir) {
-    foreach ($runtimeFile in @('settings.json', 'machine_id', 'authorization.cache')) {
+    foreach ($runtimeFile in @('settings.json', 'machine_id', 'authorization.cache', 'authorization.revision')) {
         if (Test-Path (Join-Path $dataDir $runtimeFile)) {
             throw "输出目录包含运行数据；请用 -DistRoot 指定新的空目录：$dataDir"
         }
@@ -58,7 +58,17 @@ Write-Host "=== Step 4: trim unused runtime files ==="
 python (Join-Path $PSScriptRoot "scripts\trim_dist.py") --dist $dist
 if ($LASTEXITCODE -ne 0) { throw "dist trimming failed." }
 
+Write-Host "=== Step 5: create complete Windows archive ==="
+$versionSource = Get-Content (Join-Path $PSScriptRoot "modules\app_updater.py") -Raw
+$versionMatch = [regex]::Match($versionSource, 'CURRENT_VERSION\s*=\s*"([^"]+)"')
+if (-not $versionMatch.Success) { throw "Unable to read CURRENT_VERSION." }
+$archive = Join-Path $distBase ("ShipmentTrack-{0}-windows-x64.zip" -f $versionMatch.Groups[1].Value)
+if (Test-Path $archive) { Remove-Item -LiteralPath $archive -Force }
+Compress-Archive -LiteralPath $dist -DestinationPath $archive -CompressionLevel Optimal
+if (-not (Test-Path $archive)) { throw "Release archive was not created: $archive" }
+
 Write-Host "=== Done ==="
 Write-Host "输出目录: $dist"
+Write-Host "完整发布包: $archive"
 Write-Host "启动: $dist\Shipment Track.exe"
 Write-Host "首次运行请在设置页选择并检测已安装的 Edge 或 Google Chrome。"

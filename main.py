@@ -83,8 +83,7 @@ def main():
                 "modules.fedex_pod_segmented",
             ):
                 importlib.import_module(module_name)
-            from ui.main_window import PROFILE_AVATAR
-            for resource in (APP_ICON, PROFILE_AVATAR):
+            for resource in (APP_ICON,):
                 if not Path(resource).is_file():
                     raise FileNotFoundError(f"Packaged resource missing: {resource}")
                 # 图片插件被裁掉时文件仍在但读不出来，必须实际解码一次
@@ -116,7 +115,11 @@ def main():
         license_mod.get_current_machine_id()
     )
     if not ok:
-        QMessageBox.critical(None, "Shipment Track", error)
+        QMessageBox.critical(
+            None,
+            "Shipment Track",
+            error or "当前无法启动应用，请稍后重试。",
+        )
         return 1
 
     win = MainWindow()

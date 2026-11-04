@@ -1,5 +1,4 @@
 import os
-import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,7 +23,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtTest import QTest
 
 from modules.settings_store import FilenameMappingRule, SettingsStore
-from ui.main_window import APP_FEATURES, APP_VERSION, MainWindow, PROFILE_AVATAR, PROFILE_NAME
+from ui.main_window import APP_FEATURES, APP_VERSION, MainWindow
 from ui.unrecognized_files_dialog import UnrecognizedFilesDialog
 
 
@@ -45,7 +44,7 @@ class NativeUiTests(unittest.TestCase):
         self.app.processEvents()
         self.temp_dir.cleanup()
 
-    def test_native_shell_has_three_pages_and_profile(self):
+    def test_native_shell_has_three_pages_and_app_info(self):
         self.assertGreaterEqual(self.window.width(), 1380)
         self.assertGreaterEqual(self.window.height(), 880)
         self.assertEqual(1080, self.window.minimumWidth())
@@ -56,30 +55,21 @@ class NativeUiTests(unittest.TestCase):
             [button.text() for button in self.window.nav_buttons],
         )
         labels = [label.text() for label in self.window.findChildren(QLabel)]
-        self.assertIn(PROFILE_NAME, labels)
-        self.assertNotIn("ShipmentTrack", labels)
+        self.assertNotIn("Garlicgoose", labels)
         self.assertNotIn("物流查询工作台", labels)
-        self.assertTrue(Path(PROFILE_AVATAR).is_file())
-        self.assertEqual(
-            "a5aa5690996a6e28222789ba9de6d022fcae276ce9126a039fa22cc0e7ed7a38",
-            hashlib.sha256(Path(PROFILE_AVATAR).read_bytes()).hexdigest(),
-        )
+        self.assertFalse(Path("assets/github_avatar.jpg").exists())
         sidebar = self.window.findChild(QFrame, "sidebar")
         self.assertEqual(168, sidebar.width())
         popup_labels = [
-            label.text() for label in self.window.profile_popup.findChildren(QLabel)
+            label.text() for label in self.window.app_info_popup.findChildren(QLabel)
             if label.text()
         ]
         self.assertEqual(
-            [PROFILE_NAME, f"ShipmentTrack v{APP_VERSION}"]
+            ["ShipmentTrack", f"ShipmentTrack v{APP_VERSION}"]
             + [f"•  {feature}" for feature in APP_FEATURES],
             popup_labels,
         )
-        sidebar_profile_text = [
-            label.text() for label in self.window.profile_button.findChildren(QLabel)
-            if label.text()
-        ]
-        self.assertEqual([], sidebar_profile_text)
+        self.assertEqual("应用信息", self.window.app_info_button.text())
         self.assertEqual([], self.window.settings_page.findChildren(QScrollArea))
         tabs = self.window.settings_page.settings_tabs
         self.assertEqual(4, tabs.count())
@@ -99,9 +89,9 @@ class NativeUiTests(unittest.TestCase):
                 for carrier, field in self.window.settings_page.audit_rate_inputs.items()
             },
         )
-        self.assertEqual("0.92", APP_VERSION)
+        self.assertEqual("1.0", APP_VERSION)
         popup_buttons = [
-            button.text() for button in self.window.profile_popup.findChildren(QPushButton)
+            button.text() for button in self.window.app_info_popup.findChildren(QPushButton)
         ]
         self.assertEqual(["更新日志", "检查更新"], popup_buttons)
 

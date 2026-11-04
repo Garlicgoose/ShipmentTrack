@@ -94,21 +94,20 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v092(self):
+    def test_in_app_changelog_reflects_v100(self):
         self.assertEqual(
             (
-                "检验表以最后一个有效 Shipment 为截止，去除尾部公式和非明细空行",
-                "按 Shipment 核对检验表与 Droplist，区分数据缺失、运单错误和数量不对",
-                "核对异常可点击查看 Shipment 和原因，并写入 Shipment异常工作表",
-                "FedEx 分段下载改用官网直链；任一票失败立即停止并弹窗提醒",
+                "左下角改为应用信息入口，集中显示当前版本、更新日志和检查更新",
+                "修复独立发布包缺少运行组件时无法启动的问题",
+                "完善 0.92 的 Shipment 核对与 FedEx 官网直链下载功能",
             ),
             app_updater.CURRENT_CHANGELOG,
         )
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 0.92")[1].split("## 1.91")[0]
-        for note in ("Shipment", "数据缺失", "运单错误", "数量不对", "官网直链", "弹窗"):
+        section = changelog.split("## 1.0")[1].split("## 0.92")[0]
+        for note in ("应用信息", "运行组件", "Shipment", "官网直链"):
             self.assertIn(note, section)
 
 

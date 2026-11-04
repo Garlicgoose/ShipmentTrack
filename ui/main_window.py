@@ -42,13 +42,11 @@ from modules.pod_files import move_pod_files, update_tracking_pod_paths
 from modules import app_updater
 from modules.settings_store import SettingsStore
 from ui.components import (
-    ClickableFrame,
+    AppInfoPopup,
     CircularProgress,
     OpenFileButton,
     PathField,
-    ProfilePopup,
     ToggleSwitch,
-    circular_pixmap,
     position_popup,
 )
 from ui.settings_page import SettingsPage
@@ -60,8 +58,6 @@ from units import detect_browser_path, get_resource_path
 
 
 APP_ICON = str(get_resource_path() / "assets" / "app_icon.png")
-PROFILE_AVATAR = str(get_resource_path() / "assets" / "github_avatar.jpg")
-PROFILE_NAME = "Garlicgoose"
 APP_VERSION = app_updater.CURRENT_VERSION
 APP_FEATURES = (
     "查询 FedEx、DHL、UPS、EI、DSV 运单状态",
@@ -87,6 +83,7 @@ class MainWindow(QMainWindow):
         self._update_check_worker = None
         self._update_download_worker = None
         self._update_manual = False
+        self._service_check_worker = None
         self._page_animation = None
         self._page_overlay = None
         self._page_transitioning = False
@@ -107,6 +104,10 @@ class MainWindow(QMainWindow):
         self._tracking_timer.setInterval(500)
         self._tracking_timer.timeout.connect(self._update_tracking_elapsed)
         self._build_ui()
+        self._service_check_timer = QTimer(self)
+        self._service_check_timer.setInterval(60 * 60 * 1000)
+        self._service_check_timer.timeout.connect(self._refresh_service_state)
+        self._service_check_timer.start()
         if getattr(sys, "frozen", False):
             QTimer.singleShot(2500, lambda: self.check_for_updates(manual=False))
 
@@ -182,35 +183,24 @@ class MainWindow(QMainWindow):
         profile_line.setStyleSheet("background:#29485F;border:none;")
         layout.addWidget(profile_line)
         layout.addSpacing(8)
-        self.profile_button = ClickableFrame()
-        self.profile_button.setObjectName("profileButton")
-        self.profile_button.setCursor(Qt.PointingHandCursor)
-        profile = QHBoxLayout(self.profile_button)
-        profile.setContentsMargins(6, 7, 6, 7)
-        avatar = QLabel()
-        avatar.setObjectName("profileAvatar")
-        avatar.setPixmap(circular_pixmap(PROFILE_AVATAR, 36))
-        avatar.setFixedSize(36, 36)
-        profile.addStretch(1)
-        profile.addWidget(avatar)
-        profile.addStretch(1)
-        self.profile_popup = ProfilePopup(
-            PROFILE_AVATAR,
-            PROFILE_NAME,
+        self.app_info_button = QPushButton("应用信息")
+        self.app_info_button.setObjectName("appInfoButton")
+        self.app_info_button.setCursor(Qt.PointingHandCursor)
+        self.app_info_popup = AppInfoPopup(
             f"ShipmentTrack v{APP_VERSION}",
             APP_FEATURES,
             self,
         )
-        self.profile_button.clicked.connect(
-            lambda: position_popup(self.profile_popup, self.profile_button)
+        self.app_info_button.clicked.connect(
+            lambda: position_popup(self.app_info_popup, self.app_info_button)
         )
-        self.profile_popup.changelog_requested.connect(self.show_changelog)
-        self.profile_popup.update_requested.connect(lambda: self.check_for_updates(manual=True))
-        layout.addWidget(self.profile_button)
+        self.app_info_popup.changelog_requested.connect(self.show_changelog)
+        self.app_info_popup.update_requested.connect(lambda: self.check_for_updates(manual=True))
+        layout.addWidget(self.app_info_button)
         return sidebar
 
     def show_changelog(self):
-        self.profile_popup.hide()
+        self.app_info_popup.hide()
         notes = "\n".join(f"• {note}" for note in app_updater.CURRENT_CHANGELOG)
         QMessageBox.information(
             self,
@@ -219,7 +209,7 @@ class MainWindow(QMainWindow):
         )
 
     def check_for_updates(self, manual=False):
-        self.profile_popup.hide()
+        self.app_info_popup.hide()
         if self._update_check_worker and self._update_check_worker.isRunning():
             if manual:
                 self._show_status("正在检查更新")
@@ -280,6 +270,37 @@ class MainWindow(QMainWindow):
         if not ok:
             QMessageBox.warning(self, "ShipmentTrack", error or "下载更新失败。")
         self._update_download_worker = None
+
+    def _refresh_service_state(self):
+        """Refresh the signed runtime state; the adapter skips network until due."""
+        if self._service_check_worker and self._service_check_worker.isRunning():
+            return
+
+        def task(log, progress, item):
+            import license as license_mod
+            item(license_mod.verify(license_mod.get_current_machine_id()))
+
+        self._service_check_worker = TaskWorker(task, self)
+        self._service_check_worker.item.connect(self._handle_service_state)
+        self._service_check_worker.finished_ok.connect(self._finish_service_check)
+        self._service_check_worker.start()
+
+    def _handle_service_state(self, result):
+        ok, _mode, _error = result
+        if ok:
+            return
+        self._service_check_timer.stop()
+        QMessageBox.critical(
+            self,
+            "ShipmentTrack",
+            "当前操作暂时不可用，请稍后重试。",
+        )
+        QTimer.singleShot(0, self.close)
+
+    def _finish_service_check(self, ok, _error):
+        if not ok:
+            self._handle_service_state((False, "unavailable", None))
+        self._service_check_worker = None
 
     def _build_tracking_page(self):
         page = QWidget()
@@ -1192,7 +1213,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self,
                 "ShipmentTrack",
-                error or "A required service is unavailable. Please try again later.",
+                error or "当前操作暂时不可用，请稍后重试。",
             )
         return ok
 
