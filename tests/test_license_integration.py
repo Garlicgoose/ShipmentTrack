@@ -7,7 +7,7 @@ from unittest import mock
 from pathlib import Path
 
 import license
-from authorization import AuthConfig, VerificationResult, canonical_payload, machine_digest
+from authorization import AuthConfig, VerificationResult, canonical_payload, machine_digest, payload_allows_machine
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -67,7 +67,7 @@ class LicenseIntegrationTests(unittest.TestCase):
 
     def test_adapter_returns_neutral_errors_and_revalidates_session(self):
         denied = VerificationResult(False, "unavailable", license.NEUTRAL_ERROR)
-        with mock.patch.object(license._verifier, "verify", return_value=denied):
+        with mock.patch.object(license._verifier, "verify_if_due", return_value=denied):
             self.assertEqual(
                 (False, "unavailable", license.NEUTRAL_ERROR),
                 license.verify("machine"),
@@ -121,6 +121,16 @@ class LicenseIntegrationTests(unittest.TestCase):
         result = verifier.verify_if_due(machine)
         self.assertFalse(result.ok)
         self.assertEqual("invalid-response", result.mode)
+
+    def test_global_enabled_allows_unlisted_machine(self):
+        payload = {
+            "schema": 1,
+            "revision": 1,
+            "issued_at": "2026-11-06T00:00:00Z",
+            "global_enabled": True,
+            "machines": {machine_digest("machine-a"): False},
+        }
+        self.assertTrue(payload_allows_machine(payload, "unlisted-machine"))
 
 
 if __name__ == "__main__":

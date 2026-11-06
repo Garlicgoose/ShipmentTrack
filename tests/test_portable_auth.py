@@ -32,12 +32,12 @@ class PortableAuthTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def document(self, enabled=True):
+    def document(self, enabled=True, global_enabled=False):
         payload = {
             "schema": 1,
             "revision": 1,
             "issued_at": "2026-09-13T00:00:00Z",
-            "global_enabled": True,
+            "global_enabled": global_enabled,
             "machines": {machine_digest(self.machine): enabled},
         }
         signature = self.private_key.sign(canonical_payload(payload))
@@ -102,6 +102,10 @@ class PortableAuthTests(unittest.TestCase):
         self.assertEqual(64, len(digest))
         self.assertEqual(digest, machine_digest("machine-a"))
         self.assertNotIn("machine", digest)
+
+    def test_global_enabled_allows_unlisted_machine(self):
+        verifier = self.verifier(lambda *_: self.document(enabled=False, global_enabled=True))
+        self.assertTrue(verifier.verify("unlisted-machine").ok)
 
 
 if __name__ == "__main__":
