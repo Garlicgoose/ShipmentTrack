@@ -1,5 +1,6 @@
 import os
 import tempfile
+import base64
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -8,6 +9,38 @@ from modules import ups_module
 
 
 class UpsOverlayTests(unittest.TestCase):
+    def test_save_pdf_reprints_when_first_cdp_result_is_blank(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cdp = mock.Mock()
+            cdp.send.return_value = {"data": base64.b64encode(b"valid").decode("ascii")}
+            page = mock.Mock()
+            page.context.new_cdp_session.return_value = cdp
+            with mock.patch.object(ups_module, "PDF_DIR", folder), \
+                 mock.patch.object(ups_module, "close_ups_assistant"), \
+                 mock.patch.object(ups_module, "expand_show_details", return_value=True), \
+                 mock.patch.object(ups_module, "cleanup_before_pdf"), \
+                 mock.patch.object(ups_module, "_ups_pdf_has_content", side_effect=[False, True]), \
+                 mock.patch.object(ups_module.time, "sleep"):
+                path = ups_module.save_ups_pdf(page, "1Z123")
+            self.assertEqual(b"valid", Path(path).read_bytes())
+            self.assertEqual(2, cdp.send.call_count)
+
+    def test_pdf_content_check_rejects_blank_and_accepts_text_pdf(self):
+        from io import BytesIO
+        from pypdf import PdfWriter
+        from types import SimpleNamespace
+
+        blank = BytesIO()
+        PdfWriter().write(blank)
+        self.assertFalse(ups_module._ups_pdf_has_content(blank.getvalue()))
+        with mock.patch(
+            "pypdf.PdfReader",
+            return_value=SimpleNamespace(pages=[SimpleNamespace(
+                extract_text=lambda: "UPS Tracking Details Delivered", get=lambda key: {}
+            )]),
+        ):
+            self.assertTrue(ups_module._ups_pdf_has_content(b"pdf"))
+
     def test_print_cleanup_targets_reported_left_bottom_overlays(self):
         page = mock.Mock()
         page.evaluate.return_value = ["this website uses cookies"]

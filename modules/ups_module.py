@@ -404,6 +404,7 @@ def install_ups_assistant_blocker(context):
 
 def save_ups_pdf(page, tracking_number):
     try:
+        import base64
         Path(PDF_DIR).mkdir(parents=True, exist_ok=True)
 
         close_ups_assistant(page)
@@ -428,23 +429,55 @@ def save_ups_pdf(page, tracking_number):
 
         pdf_file = Path(PDF_DIR) / f"{tracking_number}.pdf"
 
-        page.pdf(
-            path=str(pdf_file),
-            format="A4",
-            print_background=True,
-            margin={
-                "top": "10mm",
-                "right": "10mm",
-                "bottom": "10mm",
-                "left": "10mm",
-            },
-        )
+        # The app attaches to a visible system browser. CDP printToPDF works in
+        # that mode; Playwright's page.pdf() is intended for headless Chromium
+        # and could leave an empty/stale output on some installed browsers.
+        cdp = page.context.new_cdp_session(page)
+        pdf_bytes = b""
+        for attempt in range(2):
+            payload = cdp.send("Page.printToPDF", {
+                "format": "A4",
+                "printBackground": True,
+                "preferCSSPageSize": True,
+                "marginTop": 0.39,
+                "marginBottom": 0.39,
+                "marginLeft": 0.39,
+                "marginRight": 0.39,
+            })
+            pdf_bytes = base64.b64decode(payload["data"])
+            if _ups_pdf_has_content(pdf_bytes):
+                break
+            if attempt == 0:
+                time.sleep(1)
+        else:
+            raise ValueError("UPS 打印结果为空白，未保存空白 POD")
+        pdf_file.write_bytes(pdf_bytes)
 
         return str(pdf_file)
 
     except Exception as e:
         print(f"{tracking_number} UPS PDF保存失败: {e}")
         return ""
+
+
+def _ups_pdf_has_content(pdf_bytes):
+    """Reject valid-but-blank PDFs while allowing image-only POD pages."""
+    try:
+        from pypdf import PdfReader
+        import io
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        if not reader.pages:
+            return False
+        for page in reader.pages:
+            text = (page.extract_text() or "").strip()
+            resources = page.get("/Resources") or {}
+            xobjects = resources.get("/XObject") if hasattr(resources, "get") else None
+            if len(text) >= 12 or (xobjects is not None and len(xobjects) > 0):
+                return True
+        return False
+    except Exception:
+        return False
 
 
 def warm_up_ups(page):
@@ -511,6 +544,8 @@ def query_ups_one(page, tracking_number, save_pdf=True):
             result["arrival_time"] = extract_arrival_time(page_text)
             if save_pdf:
                 result["pdf_file"] = save_ups_pdf(page, tracking_number)
+                if not result["pdf_file"]:
+                    result["error"] = "运单状态已送达，但 UPS POD 未生成有效 PDF"
 
         print(
             f"{tracking_number} -> {result['status']} "
