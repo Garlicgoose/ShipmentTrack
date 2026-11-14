@@ -16,11 +16,14 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.0"
+CURRENT_VERSION = "1.2"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
+    "跟踪查询支持在当前运单完成后暂停，并从下一票继续",
+    "FedEx、EI、DHL 和 UPS 遇到临时查询错误时自动重试一次",
+    "UPS POD 改用可见浏览器打印并拒绝保存空白 PDF",
     "左下角改为应用信息入口，集中显示当前版本、更新日志和检查更新",
     "修复独立发布包缺少运行组件时无法启动的问题",
     "完善 0.92 的 Shipment 核对与 FedEx 官网直链下载功能",

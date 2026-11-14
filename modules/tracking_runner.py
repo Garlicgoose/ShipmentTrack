@@ -58,6 +58,8 @@ def run_tracking(
     delivery_statuses=None,
     audit_rates=None,
     login_wait_seconds=10,
+    pause_controller=None,
+    paused=None,
 ):
     """执行批量查询。三个回调用于日志、进度和逐条结果。"""
     log = log or (lambda msg: None)
@@ -117,6 +119,15 @@ def run_tracking(
         total = len(work_rows)
 
         for idx, row in enumerate(work_rows):
+            # A pause takes effect between shipments: never interrupt a carrier
+            # navigation or PDF save, and leave the next row untouched.
+            if pause_controller is not None:
+                pause_controller.wait_if_paused(
+                    lambda: (
+                        log(f"查询已暂停，{total - idx} 票尚未查询；点击“继续查询”后从当前票继续"),
+                        paused() if paused else None,
+                    )
+                )
             carrier = row["快递公司"]
             tracking_number = row["运单号"]
 
@@ -178,6 +189,25 @@ def run_tracking(
                         )
                 else:
                     raw_result = session.query_one(tracking_number)
+
+                # Carrier pages occasionally return a transient Error after a
+                # timeout or incomplete render. Retry that shipment once while
+                # retaining its position in the source list.
+                if str(raw_result.get("status", "")).strip().casefold() == "error":
+                    first_error = raw_result.get("error", "") or "承运商页面返回 Error"
+                    log(f"{carrier} {tracking_number} 查询异常，等待后重试一次：{first_error}")
+                    time.sleep(2)
+                    if TRACKING_CARRIER_CONFIG[carrier].get("api_based"):
+                        raw_result = fedex_module.query_fedex_one(
+                            tracking_number,
+                            api_key=fedex_api_key,
+                            api_secret=fedex_api_secret,
+                            save_pdf=False,
+                        )
+                    else:
+                        raw_result = session.query_one(tracking_number)
+                    if str(raw_result.get("status", "")).strip().casefold() == "error":
+                        raw_result["error"] = raw_result.get("error") or first_error
 
                 elapsed_seconds = round(time.perf_counter() - start_time, 2)
 

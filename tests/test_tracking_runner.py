@@ -1,4 +1,5 @@
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,9 +9,88 @@ from openpyxl import Workbook, load_workbook
 
 from modules.tracking_runner import _aggregate_audit_results, run_tracking
 from modules.tracking_utils import prepare_tracking_input_rows
+from ui.workers import PauseController
 
 
 class TrackingRunnerTests(unittest.TestCase):
+    def test_pause_controller_waits_until_resumed(self):
+        controller = PauseController()
+        paused = threading.Event()
+        resumed = threading.Event()
+        controller.request_pause()
+        def wait():
+            controller.wait_if_paused(paused.set)
+            resumed.set()
+        worker = threading.Thread(target=wait)
+        worker.start()
+        self.assertTrue(paused.wait(1))
+        self.assertFalse(resumed.wait(0.05))
+        controller.resume()
+        self.assertTrue(resumed.wait(1))
+        worker.join(1)
+
+    def test_transient_error_retries_same_shipment_once(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_file = root / "input.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(("快递公司", "运单号"))
+            sheet.append(("DHL", "1234567890"))
+            workbook.save(input_file)
+            session = mock.Mock()
+            session.query_one.side_effect = [
+                {"status": "Error", "error": "timeout"},
+                {"status": "Delivered", "is_delivered": True, "error": ""},
+            ]
+            manager = mock.Mock()
+            manager.start.return_value = mock.Mock()
+            with mock.patch(
+                "modules.tracking_runner.TrackingCarrierSession", return_value=session
+            ), mock.patch(
+                "playwright.sync_api.sync_playwright", return_value=manager
+            ), mock.patch("modules.tracking_runner.time.sleep"), mock.patch(
+                "modules.tracking_runner.fedex_module.close_shared_session"
+            ), mock.patch("modules.tracking_runner.audit_pod_sample", return_value=[]):
+                output = run_tracking(
+                    input_file=input_file, output_dir=root / "out", save_pdf=False,
+                    login_wait_seconds=0,
+                )
+            self.assertEqual(2, session.query_one.call_count)
+            result = load_workbook(output, data_only=True).active
+            self.assertEqual("Delivered", result["C2"].value)
+
+    def test_pause_controller_is_checked_between_input_rows(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_file = root / "input.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(("快递公司", "运单号"))
+            sheet.append(("FedEx", "123456789012"))
+            sheet.append(("FedEx", "123456789013"))
+            workbook.save(input_file)
+            class Controller:
+                calls = 0
+                def wait_if_paused(self, on_pause=None):
+                    self.calls += 1
+                    if self.calls == 2 and on_pause:
+                        on_pause()
+            controller = Controller()
+            with mock.patch(
+                "modules.tracking_runner.fedex_module.query_fedex_one",
+                return_value={"status": "In transit", "is_delivered": "N"},
+            ) as query, mock.patch(
+                "modules.tracking_runner.fedex_module.close_shared_session"
+            ), mock.patch("modules.tracking_runner.audit_pod_sample", return_value=[]):
+                logs = []
+                run_tracking(
+                    input_file=input_file, output_dir=root / "out", save_pdf=False,
+                    pause_controller=controller, log=logs.append,
+                )
+            self.assertEqual(2, query.call_count)
+            self.assertTrue(any("1 票尚未查询" in entry for entry in logs))
+
     def test_fedex_two_page_audit_uses_worst_result(self):
         items = [
             SimpleNamespace(tracking_number="123", result="通过"),

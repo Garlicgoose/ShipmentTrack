@@ -94,9 +94,12 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v100(self):
+    def test_in_app_changelog_reflects_v12(self):
         self.assertEqual(
             (
+                "跟踪查询支持在当前运单完成后暂停，并从下一票继续",
+                "FedEx、EI、DHL 和 UPS 遇到临时查询错误时自动重试一次",
+                "UPS POD 改用可见浏览器打印并拒绝保存空白 PDF",
                 "左下角改为应用信息入口，集中显示当前版本、更新日志和检查更新",
                 "修复独立发布包缺少运行组件时无法启动的问题",
                 "完善 0.92 的 Shipment 核对与 FedEx 官网直链下载功能",
@@ -106,8 +109,8 @@ class AppUpdaterTests(unittest.TestCase):
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.0")[1].split("## 0.92")[0]
-        for note in ("应用信息", "运行组件", "Shipment", "官网直链"):
+        section = changelog.split("## 1.2")[1].split("## 1.0")[0]
+        for note in ("暂停", "重试", "UPS POD"):
             self.assertIn(note, section)
 
 

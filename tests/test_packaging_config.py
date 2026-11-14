@@ -83,7 +83,7 @@ class PackagingConfigTests(unittest.TestCase):
         guide = (ROOT / "使用说明.txt").read_text("utf-8")
         self.assertIn("Microsoft Edge 或 Google Chrome", readme)
         self.assertIn("不需要另行下载 Chromium", guide)
-        self.assertIn("ShipmentTrack v1.0", readme)
+        self.assertIn("ShipmentTrack v1.2", readme)
         self.assertIn("一键整理 POD", readme)
         self.assertIn("保存当前页面 PDF", readme)
         self.assertIn("单次票数（1–1000，默认 10）", readme)

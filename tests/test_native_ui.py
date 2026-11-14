@@ -89,7 +89,7 @@ class NativeUiTests(unittest.TestCase):
                 for carrier, field in self.window.settings_page.audit_rate_inputs.items()
             },
         )
-        self.assertEqual("1.0", APP_VERSION)
+        self.assertEqual("1.2", APP_VERSION)
         popup_buttons = [
             button.text() for button in self.window.app_info_popup.findChildren(QPushButton)
         ]
@@ -678,7 +678,8 @@ class NativeUiTests(unittest.TestCase):
 
         self.window._set_tracking_running(True)
         self.assertTrue(self.window.excel_run_button.isEnabled())
-        self.assertFalse(self.window.run_button.isEnabled())
+        self.assertTrue(self.window.run_button.isEnabled())
+        self.assertEqual("暂停查询", self.window.run_button.text())
         self.window.excel_run_button.setEnabled(False)
         self.assertFalse(self.window.excel_run_button.isEnabled())
         self.window._set_tracking_running(False)

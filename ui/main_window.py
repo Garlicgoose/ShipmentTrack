@@ -53,7 +53,7 @@ from ui.settings_page import SettingsPage
 from ui.fedex_manual_dialog import FedExManualDialog
 from ui.unrecognized_files_dialog import UnrecognizedFilesDialog
 from ui.styles import APP_STYLE
-from ui.workers import TaskWorker
+from ui.workers import PauseController, TaskWorker
 from units import detect_browser_path, get_resource_path
 
 
@@ -79,6 +79,7 @@ class MainWindow(QMainWindow):
                 self.store.save_settings(self.settings)
 
         self._tracking_worker = None
+        self._tracking_pause = None
         self._excel_worker = None
         self._update_check_worker = None
         self._update_download_worker = None
@@ -248,7 +249,7 @@ class MainWindow(QMainWindow):
     def _download_application_update(self, manifest):
         self._show_status(f"正在下载 ShipmentTrack v{manifest['version']}")
 
-        def task(log, progress, item):
+        def task(log, progress, item, paused):
             item(app_updater.download_update(manifest))
 
         self._update_download_worker = TaskWorker(task, self)
@@ -746,6 +747,14 @@ class MainWindow(QMainWindow):
         label.setText(f"{value}%")
 
     def _start_tracking(self):
+        if self._tracking_pause is not None and self._tracking_worker and self._tracking_worker.isRunning():
+            if self.run_button.text() == "暂停查询":
+                self._request_tracking_pause()
+            else:
+                self._tracking_pause.resume()
+                self.run_button.setText("暂停查询")
+                self.run_button.setToolTip("当前运单完成后暂停")
+            return
         if not self._authorization_ready():
             return
         if self._tracking_worker and self._tracking_worker.isRunning():
@@ -792,6 +801,7 @@ class MainWindow(QMainWindow):
         self._tracking_elapsed.start()
         self._tracking_timer.start()
         self._set_tracking_running(True)
+        self._tracking_pause = PauseController()
         self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 0)
 
         run_settings = dict(settings)
@@ -817,10 +827,13 @@ class MainWindow(QMainWindow):
                 result=item,
                 delivery_statuses=delivery_statuses,
                 audit_rates=run_settings.get("pod_audit_rates"),
+                pause_controller=self._tracking_pause,
+                paused=paused,
             )
 
         self._tracking_worker = TaskWorker(task, self)
         self._tracking_worker.log.connect(self.tracking_log.appendPlainText)
+        self._tracking_worker.paused.connect(self._tracking_paused)
         self._tracking_worker.progress.connect(
             lambda value: self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, value)
         )
@@ -959,11 +972,24 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "运单详情", "\n".join(values))
 
     def _set_tracking_running(self, running):
-        self.run_button.setEnabled(not running)
+        self.run_button.setEnabled(True)
         self.tracking_input.setEnabled(not running)
         self.tracking_output.setEnabled(not running)
         self.pod_switch.setEnabled(not running)
-        self.run_button.setText("查询中…" if running else "开始查询")
+        self.run_button.setText("暂停查询" if running else "开始查询")
+        self.run_button.setToolTip("当前运单完成后暂停" if running else "")
+
+    def _request_tracking_pause(self):
+        if self._tracking_pause is not None:
+            self._tracking_pause.request_pause()
+            self.run_button.setEnabled(False)
+            self.run_button.setText("暂停中…")
+            self.run_button.setToolTip("当前运单完成后暂停")
+
+    def _tracking_paused(self):
+        self.run_button.setEnabled(True)
+        self.run_button.setText("继续查询")
+        self.run_button.setToolTip("继续处理尚未查询的运单")
 
     def _update_tracking_elapsed(self):
         if not self._tracking_elapsed.isValid():

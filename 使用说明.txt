@@ -1,4 +1,4 @@
-# ShipmentTrack v1.0
+# ShipmentTrack v1.2
 
 快递批量查询工具（DHL / DSV / EI / UPS / FedEx）。
 
@@ -90,7 +90,7 @@ Shipment Track\
 ```
 
 程序使用电脑已安装的 Edge 或 Google Chrome，不需要另行下载 Chromium。
-左下角“应用信息”可以查看 v1.0 更新日志或手动检查新版本。
+查询过程中可点击“暂停查询”。当前运单完成后会暂停，点击“继续查询”从下一票接着处理。左下角“应用信息”可查看 v1.2 更新日志或检查更新。
 
 ## 常见问题
 

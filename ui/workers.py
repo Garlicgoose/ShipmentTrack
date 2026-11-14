@@ -3,8 +3,36 @@
 import ctypes
 import inspect
 import traceback
+import threading
 
 from PySide6.QtCore import QThread, Signal
+
+
+class PauseController:
+    """Cooperative pause that only blocks at explicit shipment boundaries."""
+
+    def __init__(self):
+        self._condition = threading.Condition()
+        self._pause_requested = False
+
+    def request_pause(self):
+        with self._condition:
+            self._pause_requested = True
+
+    def resume(self):
+        with self._condition:
+            self._pause_requested = False
+            self._condition.notify_all()
+
+    def wait_if_paused(self, on_pause=None):
+        with self._condition:
+            if not self._pause_requested:
+                return False
+            if on_pause:
+                on_pause()
+            while self._pause_requested:
+                self._condition.wait()
+            return True
 
 
 def _set_thread_idle_priority():
@@ -27,6 +55,7 @@ class TaskWorker(QThread):
     log = Signal(str)
     progress = Signal(int)
     item = Signal(object)
+    paused = Signal()
     finished_ok = Signal(bool, str)  # (ok, error_message)
 
     def __init__(self, fn, parent=None):
@@ -43,6 +72,8 @@ class TaskWorker(QThread):
             parameters = inspect.signature(self._fn).parameters
             if "item" in parameters:
                 kwargs["item"] = self.item.emit
+            if "paused" in parameters:
+                kwargs["paused"] = self.paused.emit
             self._fn(**kwargs)
             self.finished_ok.emit(True, "")
         except Exception as exc:  # noqa: BLE001
