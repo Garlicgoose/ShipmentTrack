@@ -3,7 +3,7 @@
 PySide6 原生 Windows 工具，用于批量查询 DHL / DSV / EI / UPS / FedEx
 运单状态、下载已送达货件的 POD，以及合并并核对检验表和 Droplist。
 
-1.3 增加 FedEx POD 双模式与队列刷新、EI S 海运查询修复，以及 Droplist Sheet 自检和异常详情表。
+1.3 增加 FedEx POD 双模式与队列刷新、EI S 海运查询修复、UPS 错单/空白 POD 校验，以及 Droplist Sheet 自检和异常详情表。
 
 ## 运行（源码）
 ```

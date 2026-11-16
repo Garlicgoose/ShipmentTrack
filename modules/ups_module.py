@@ -445,7 +445,7 @@ def save_ups_pdf(page, tracking_number):
                 "marginRight": 0.39,
             })
             pdf_bytes = base64.b64decode(payload["data"])
-            if _ups_pdf_has_content(pdf_bytes):
+            if _ups_pdf_has_content(pdf_bytes, tracking_number):
                 break
             if attempt == 0:
                 time.sleep(1)
@@ -460,8 +460,8 @@ def save_ups_pdf(page, tracking_number):
         return ""
 
 
-def _ups_pdf_has_content(pdf_bytes):
-    """Reject valid-but-blank PDFs while allowing image-only POD pages."""
+def _ups_pdf_has_content(pdf_bytes, tracking_number=""):
+    """Reject blank PDFs and printouts that do not identify the requested ticket."""
     try:
         from pypdf import PdfReader
         import io
@@ -469,8 +469,12 @@ def _ups_pdf_has_content(pdf_bytes):
         reader = PdfReader(io.BytesIO(pdf_bytes))
         if not reader.pages:
             return False
+        required_number = re.sub(r"[^0-9A-Za-z]", "", str(tracking_number or "")).casefold()
         for page in reader.pages:
             text = (page.extract_text() or "").strip()
+            compact_text = re.sub(r"[^0-9A-Za-z]", "", text).casefold()
+            if required_number and required_number not in compact_text:
+                continue
             resources = page.get("/Resources") or {}
             xobjects = resources.get("/XObject") if hasattr(resources, "get") else None
             if len(text) >= 12 or (xobjects is not None and len(xobjects) > 0):

@@ -41,6 +41,19 @@ class UpsOverlayTests(unittest.TestCase):
         ):
             self.assertTrue(ups_module._ups_pdf_has_content(b"pdf"))
 
+    def test_pdf_content_check_requires_current_tracking_number(self):
+        from types import SimpleNamespace
+
+        page = SimpleNamespace(
+            extract_text=lambda: "UPS Tracking Details Delivered 1Z999",
+            get=lambda _key: {},
+        )
+        with mock.patch(
+            "pypdf.PdfReader", return_value=SimpleNamespace(pages=[page])
+        ):
+            self.assertFalse(ups_module._ups_pdf_has_content(b"pdf", "1Z123"))
+            self.assertTrue(ups_module._ups_pdf_has_content(b"pdf", "1Z999"))
+
     def test_print_cleanup_targets_reported_left_bottom_overlays(self):
         page = mock.Mock()
         page.evaluate.return_value = ["this website uses cookies"]
