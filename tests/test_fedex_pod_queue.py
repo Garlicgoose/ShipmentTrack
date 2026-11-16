@@ -41,10 +41,42 @@ class FedExPodQueueTests(unittest.TestCase):
 
         invalid = self.root / "invalid.xlsx"
         book = Workbook()
-        book.active.append(("Tracking Number",))
+        book.active.append(("Unknown", "Other"))
         book.save(invalid)
         with self.assertRaisesRegex(ValueError, "运单号"):
             self.queue.import_excel(invalid)
+
+    def test_import_excel_accepts_single_column_with_or_without_header(self):
+        no_header = self.root / "numbers.xlsx"
+        book = Workbook()
+        book.active.append(("541964339019",))
+        book.active.append(("541964339020",))
+        book.save(no_header)
+        self.assertEqual(
+            ["541964339019", "541964339020"], self.queue.import_excel(no_header)
+        )
+
+        with_header = self.root / "numbers-with-header.xlsx"
+        book = Workbook()
+        book.active.append(("运单号",))
+        book.active.append(("541964339021",))
+        book.save(with_header)
+        self.assertEqual(["541964339021"], self.queue.import_excel(with_header))
+        self.assertEqual(
+            ["541964339019", "541964339020"],
+            self.queue.read_excel_numbers(no_header),
+        )
+
+    def test_refresh_keeps_this_run_and_progress_but_removes_old_queue(self):
+        self.queue.add_numbers(["541964339019", "541964339020"])
+        self.queue.mark_main_saved("541964339019", "main.pdf")
+        self.queue.retain_numbers(["541964339019", "541964339021"])
+        self.assertEqual(
+            ["541964339019", "541964339021"],
+            [task.number for task in self.queue.tasks()],
+        )
+        self.assertEqual("main_saved", self.queue.get("541964339019").state)
+        self.assertEqual("pending", self.queue.get("541964339021").state)
 
     def test_main_detail_state_survives_reopening_database(self):
         self.queue.add_numbers(["541964339019"])
@@ -66,6 +98,17 @@ class FedExPodQueueTests(unittest.TestCase):
         self.assertEqual("FedEx 限流", paused.reason)
         self.queue.resume("541964339019")
         self.assertEqual("541964339019", self.queue.next_ready().number)
+
+    def test_resume_failed_ticket_from_valid_main_pdf_stage(self):
+        self.queue.add_numbers(["541964339019", "541964339020"])
+        main_pdf = self.root / "main.pdf"
+        main_pdf.write_bytes(b"%PDF-1.7\n" + b"x" * 1100)
+        self.queue.mark_main_saved("541964339019", str(main_pdf))
+        self.queue.pause("541964339019", "详情页网络失败")
+        self.queue.resume("541964339019")
+        task = self.queue.next_ready()
+        self.assertEqual("541964339019", task.number)
+        self.assertEqual("detail", task.expected_page)
 
     def test_counts_include_every_queue_state(self):
         self.queue.add_numbers(["541964339019", "541964339020", "541964339021"])

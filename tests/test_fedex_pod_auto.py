@@ -43,7 +43,7 @@ class ExperimentalAutoPodTests(unittest.TestCase):
         self.assertEqual("paused", self.queue.get("541964339019").state)
         self.assertEqual("pending", self.queue.get("541964339020").state)
 
-    def test_two_ordinary_failures_open_circuit_without_retrying_same_job(self):
+    def test_any_failure_pauses_current_and_stops_before_next_job(self):
         self.queue.add_numbers(["541964339019", "541964339020", "541964339021"])
         session = mock.Mock()
         session.download.side_effect = [
@@ -52,9 +52,50 @@ class ExperimentalAutoPodTests(unittest.TestCase):
         ]
         result = run_experimental_auto(self.queue, session, interval_seconds=0)
         self.assertTrue(result.circuit_open)
-        self.assertEqual(2, result.processed)
-        self.assertEqual(2, result.paused)
-        self.assertEqual(2, session.download.call_count)
+        self.assertEqual(1, result.processed)
+        self.assertEqual(1, result.paused)
+        self.assertEqual(1, session.download.call_count)
+        self.assertEqual("pending", self.queue.get("541964339020").state)
+
+    def test_direct_download_option_uses_official_direct_loader(self):
+        self.queue.add_numbers(["541964339019"])
+        session = mock.Mock()
+        session.download_direct.return_value = FedExWebPodResult(
+            "541964339019", True, "main.pdf", "detail.pdf"
+        )
+        result = run_experimental_auto(
+            self.queue, session, interval_seconds=0, direct_download=True
+        )
+        self.assertEqual(1, result.completed)
+        session.download_direct.assert_called_once_with("541964339019")
+        session.download.assert_not_called()
+
+    def test_continuous_direct_mode_processes_every_ready_ticket(self):
+        class Queue:
+            def __init__(self, count):
+                self.pending = [f"N{index}" for index in range(count)]
+            def tasks(self, _states):
+                return [object()] * len(self.pending)
+            def next_ready(self):
+                return SimpleTask(self.pending[0]) if self.pending else None
+            def mark_completed(self, number, _main, _detail):
+                self.pending.remove(number)
+            def pause(self, _number, _reason):
+                raise AssertionError("unexpected pause")
+        class SimpleTask:
+            def __init__(self, number):
+                self.number = number
+                self.main_pdf = ""
+        queue = Queue(1001)
+        session = mock.Mock()
+        session.download_direct.side_effect = lambda number: FedExWebPodResult(
+            number, True, "main.pdf", "detail.pdf"
+        )
+        outcome = run_experimental_auto(
+            queue, session, batch_limit=1001, interval_seconds=0, direct_download=True
+        )
+        self.assertEqual(1001, outcome.processed)
+        self.assertEqual(1001, session.download_direct.call_count)
 
     def test_success_callback_receives_completed_result(self):
         self.queue.add_numbers(["541964339019"])

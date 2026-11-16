@@ -57,12 +57,13 @@ def run_experimental_auto(
     completed_callback: Callable[[object], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
     delay: Callable[[float], None] = time.sleep,
+    direct_download: bool = False,
 ) -> ExperimentalAutoRun:
     """Process the configured batch; blocked pages open the circuit immediately."""
     write_log = log or (lambda _message: None)
     stopped = stop_requested or (lambda: False)
-    limit = normalize_batch_limit(batch_limit)
-    processed = completed = paused = consecutive_failures = 0
+    limit = max(1, int(batch_limit)) if direct_download else normalize_batch_limit(batch_limit)
+    processed = completed = paused = 0
     circuit_open = False
     reason = ""
 
@@ -72,13 +73,13 @@ def run_experimental_auto(
             break
         processed += 1
         write_log(f"实验自动模式 [{processed}/{limit}] {task.number}")
-        result = session.download(task.number)
+        download = session.download_direct if direct_download else session.download
+        result = download(task.number)
         if result.ok:
             queue.mark_completed(
                 task.number, result.main_pdf, result.detail_pdf
             )
             completed += 1
-            consecutive_failures = 0
             if completed_callback:
                 completed_callback(result)
             write_log(f"{task.number} 两份网页 PDF 已保存")
@@ -87,13 +88,11 @@ def run_experimental_auto(
                 queue.mark_main_saved(task.number, result.main_pdf)
             queue.pause(task.number, result.error or "实验自动模式未完成")
             paused += 1
-            consecutive_failures += 1
             reason = result.error or "实验自动模式未完成"
             write_log(f"{task.number} 已进入暂停列表：{reason}")
-            if is_site_block(reason) or consecutive_failures >= 2:
-                circuit_open = True
-                write_log("实验自动模式已熔断，不再继续查询 FedEx 网站")
-                break
+            circuit_open = True
+            write_log("自动下载已暂停，不再继续查询 FedEx 网站")
+            break
         if processed < limit and queue.next_ready() is not None and not stopped():
             delay(max(0.0, float(interval_seconds)))
 

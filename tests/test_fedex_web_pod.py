@@ -88,6 +88,34 @@ class FedExWebPodTests(unittest.TestCase):
             direct.assert_called_once_with("519470439011")
             form_flow.assert_not_called()
 
+    def test_retry_with_valid_main_pdf_resumes_at_details(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             mock.patch.object(web_pod, "find_edge", return_value="msedge.exe"):
+            session = web_pod.FedExEdgePodSession(
+                mock.Mock(), temp_dir, minimize_browser=False, overwrite=False
+            )
+            session.page = mock.Mock()
+            session.context = mock.Mock()
+            main, detail = web_pod.output_paths(Path(temp_dir), "519470439011")
+            main.write_bytes(b"%PDF-1.7\n" + b"m" * 1100)
+
+            def write_detail(_context, _page, destination):
+                destination.write_bytes(b"%PDF-1.7\n" + b"d" * 1100)
+
+            with mock.patch.object(session, "start"), \
+                 mock.patch.object(session, "_load_direct_page") as direct, \
+                 mock.patch.object(web_pod, "_body_text", return_value="main"), \
+                 mock.patch.object(web_pod, "_open_details") as details, \
+                 mock.patch.object(web_pod, "_print_current_page", side_effect=write_detail) as render:
+                result = session.download_direct("519470439011")
+
+            self.assertTrue(result.ok)
+            self.assertEqual(main.read_bytes(), b"%PDF-1.7\n" + b"m" * 1100)
+            self.assertTrue(detail.is_file())
+            direct.assert_called_once_with("519470439011")
+            details.assert_called_once()
+            render.assert_called_once_with(session.context, session.page, detail)
+
     def test_direct_page_uses_official_result_url_without_form_submission(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
              mock.patch.object(web_pod, "find_edge", return_value="msedge.exe"):

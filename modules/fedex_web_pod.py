@@ -604,9 +604,13 @@ class FedExEdgePodSession:
             return FedExWebPodResult(number, True, str(main_pdf), str(detail_pdf))
         try:
             self.start()
+            keep_main = not self.overwrite and is_valid_pdf(main_pdf)
             loader(number)
             main_text = _body_text(self.page)
-            _print_current_page(self.context, self.page, main_pdf)
+            if not keep_main:
+                _print_current_page(self.context, self.page, main_pdf)
+            else:
+                self.log(f"{number} 已有有效主页 PDF，从详情页阶段继续")
             _open_details(self.page, main_text, self.timeout_seconds, number)
             _print_current_page(self.context, self.page, detail_pdf)
             return FedExWebPodResult(number, True, str(main_pdf), str(detail_pdf))

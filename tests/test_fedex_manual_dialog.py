@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
 
 from modules.fedex_manual_pod import ManualPageSave
@@ -23,31 +23,34 @@ class ManualDialogTests(unittest.TestCase):
     def test_dialog_exposes_human_search_controls(self):
         with tempfile.TemporaryDirectory() as folder:
             dialog = FedExManualDialog(["541964339019"], folder)
-            self.assertIn("用户负责 TRACK", dialog.stage_label.text())
-            self.assertEqual("打开浏览器并开始", dialog.start_button.text())
-            self.assertIn("实验自动处理", dialog.auto_button.text())
-            self.assertEqual("自动分段下载", dialog.segmented_button.text())
-            self.assertEqual("重新连接官网", dialog.connect_site_button.text())
-            self.assertEqual("保存当前页面 PDF", dialog.print_button.text())
-            self.assertEqual("下一票", dialog.next_button.text())
-            self.assertEqual("跳过当前", dialog.skip_button.text())
-            self.assertTrue(dialog.windowFlags() & Qt.WindowStaysOnTopHint)
+            self.assertEqual("开始", dialog.start_button.text())
+            self.assertEqual("暂停", dialog.pause_button.text())
+            self.assertEqual("恢复", dialog.resume_button.text())
+            self.assertEqual("保存", dialog.print_button.text())
+            self.assertTrue(dialog.automatic_switch.isChecked())
+            self.assertTrue(dialog.segment_switch.isChecked())
+            self.assertFalse(dialog.segment_switch.isHidden())
+            self.assertTrue(dialog.print_button.isHidden())
+            self.assertEqual("分段", dialog.segment_label.text())
+            dialog.segment_switch.setChecked(False)
+            self.assertEqual("连续", dialog.segment_label.text())
+            dialog.segment_switch.setChecked(True)
+            self.assertFalse(dialog.pin_switch.isChecked())
             self.assertTrue(dialog.windowFlags() & Qt.Window)
+            dialog.automatic_switch.setChecked(False)
+            self.assertTrue(dialog.segment_switch.isHidden())
+            self.assertFalse(dialog.print_button.isHidden())
             dialog.close()
 
     def test_segmented_mode_is_separate_and_opt_in(self):
         with tempfile.TemporaryDirectory() as folder:
             dialog = FedExManualDialog(["541964339019"], folder)
-            with mock.patch(
-                "ui.fedex_manual_dialog.QMessageBox.question",
-                return_value=QMessageBox.Yes,
-            ) as question, mock.patch.object(SegmentedAutoPodWorker, "start") as start:
+            with mock.patch.object(SegmentedAutoPodWorker, "start") as start:
                 dialog.start_segmented()
-            question.assert_called_once()
             self.assertIsInstance(dialog.worker, SegmentedAutoPodWorker)
             start.assert_called_once()
-            self.assertIn("当前计划：1", question.call_args.args[2])
             dialog.worker = None
+            dialog._active = False
             dialog.close()
 
     def test_segmented_worker_wait_can_be_stopped_immediately(self):
@@ -64,33 +67,31 @@ class ManualDialogTests(unittest.TestCase):
             dialog = FedExManualDialog(["541964339019"], folder)
             with mock.patch("ui.fedex_manual_dialog.QMessageBox.warning") as warning:
                 dialog._show_segmented_failure("直链失败")
-            warning.assert_called_once_with(
-                dialog, "FedEx 分段下载已停止", "直链失败"
-            )
+            warning.assert_called_once_with(dialog, "FedEx 自动下载已暂停", "直链失败")
             dialog.close()
 
-    def test_experimental_auto_mode_is_opt_in(self):
+    def test_continuous_auto_mode_starts_without_confirmation(self):
         with tempfile.TemporaryDirectory() as folder:
             dialog = FedExManualDialog(["541964339019"], folder)
-            with mock.patch(
-                "ui.fedex_manual_dialog.QMessageBox.question",
-                return_value=QMessageBox.No,
-            ) as question:
+            with mock.patch("ui.fedex_manual_dialog.ExperimentalAutoPodWorker") as worker:
                 dialog.start_auto()
-            question.assert_called_once()
-            self.assertIsNone(dialog.worker)
+            self.assertIsInstance(dialog.worker, mock.Mock)
+            self.assertFalse(dialog.segment_switch.isChecked())
+            worker.assert_called_once()
+            worker.return_value.start.assert_called_once()
+            dialog._active = False
+            dialog.worker = None
             dialog.close()
 
-    def test_configured_count_reaches_auto_worker_and_confirmation(self):
+    def test_continuous_auto_processes_all_ready_queue_items(self):
         with tempfile.TemporaryDirectory() as folder:
             dialog = FedExManualDialog(["541964339019"], folder, auto_batch_limit=25)
-            self.assertIn("25", dialog.auto_button.text())
-            with mock.patch("ui.fedex_manual_dialog.QMessageBox.question", return_value=QMessageBox.Yes) as question, \
-                 mock.patch("ui.fedex_manual_dialog.ExperimentalAutoPodWorker") as worker:
+            dialog.queue.add_numbers(["541964339020", "541964339021"])
+            with mock.patch("ui.fedex_manual_dialog.ExperimentalAutoPodWorker") as worker:
                 dialog.start_auto()
-            self.assertIn("25", question.call_args.args[2])
-            self.assertEqual(25, worker.call_args.kwargs["batch_limit"])
+            self.assertEqual(3, worker.call_args.kwargs["batch_limit"])
             worker.return_value.start.assert_called_once()
+            dialog._active = False
             dialog.worker = None
             dialog.close()
 
@@ -132,19 +133,31 @@ class ManualDialogTests(unittest.TestCase):
             session.save_current.assert_called_once_with("541964339019", "main", None)
             self.assertEqual("main_saved", worker.queue.get("541964339019").state)
 
-    def test_next_does_not_navigate_or_advance_incomplete_task(self):
+    def test_manual_save_advances_and_copies_next_number_after_both_pages(self):
         with tempfile.TemporaryDirectory() as folder:
-            worker = ManualPodWorker(
-                ["541964339019"], folder, queue_path=os.path.join(folder, "queue.json")
-            )
+            queue_path = os.path.join(folder, "queue.json")
+            worker = ManualPodWorker(["541964339019"], folder, queue_path=queue_path)
+            worker.queue.add_numbers(["541964339020"])
             session = mock.Mock()
-            worker.next_event.set()
+            session.save_current.side_effect = [
+                ManualPageSave("main", os.path.join(folder, "main.pdf"), ("text", "url")),
+                ManualPageSave("detail", os.path.join(folder, "detail.pdf")),
+            ]
+            worker.print_event.set()
             with mock.patch(
-                "ui.fedex_manual_dialog.time.sleep", side_effect=lambda _: worker.stop_event.set()
+                "ui.fedex_manual_dialog.time.sleep",
+                side_effect=lambda _seconds: worker.print_event.set(),
             ):
-                self.assertEqual("stop", worker._process(session, worker.queue.next_ready()))
-            session.page.goto.assert_not_called()
-            self.assertEqual("pending", worker.queue.get("541964339019").state)
+                outcome = worker._process(session, worker.queue.next_ready())
+            self.assertEqual("done", outcome)
+            self.assertEqual("completed", worker.queue.get("541964339019").state)
+            self.assertEqual("541964339020", worker.queue.next_ready().number)
+
+    def test_manual_dialog_has_no_next_ticket_button(self):
+        with tempfile.TemporaryDirectory() as folder:
+            dialog = FedExManualDialog(["541964339019"], folder)
+            self.assertFalse(hasattr(dialog, "next_button"))
+            dialog.close()
 
     def test_reconnect_event_opens_site_only_when_user_requests_it(self):
         with tempfile.TemporaryDirectory() as folder:

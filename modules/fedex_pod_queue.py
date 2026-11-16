@@ -115,23 +115,83 @@ class FedExPodQueue:
                 self._write(document)
         return added
 
+    def retain_numbers(self, numbers: Iterable[object], source: str = "本次运单") -> list[str]:
+        """Drop older queue entries while keeping progress for this session's numbers."""
+        normalized = []
+        seen = set()
+        for raw in numbers:
+            try:
+                number = normalize_tracking_number(raw)
+            except ValueError:
+                continue
+            if number not in seen:
+                seen.add(number)
+                normalized.append(number)
+        with self._lock:
+            document = self._read()
+            by_number = {str(item.get("number")): item for item in document["tasks"]}
+            next_position = 1
+            rebuilt = []
+            for number in normalized:
+                item = by_number.get(number)
+                if item is None:
+                    item = asdict(FedExPodTask(
+                        number=number,
+                        state="pending",
+                        source=source,
+                        position=next_position,
+                        updated_at=_now(),
+                    ))
+                item["position"] = next_position
+                next_position += 1
+                rebuilt.append(item)
+            document["tasks"] = rebuilt
+            document["next_position"] = next_position
+            self._write(document)
+        return [str(item["number"]) for item in rebuilt]
+
     def import_excel(self, path) -> list[str]:
+        source = Path(path)
+        return self.add_numbers(
+            self.read_excel_numbers(source), source=str(source.resolve())
+        )
+
+    def read_excel_numbers(self, path) -> list[str]:
         source = Path(path)
         workbook = load_workbook(source, read_only=True, data_only=True)
         try:
             sheet = workbook.active
-            headers = {str(cell.value or "").strip(): cell.column for cell in sheet[1]}
-            column = headers.get("运单号")
-            if not column:
-                raise ValueError("Excel 缺少“运单号”列表头")
+            if sheet.max_column == 1:
+                first = str(sheet.cell(1, 1).value or "").strip().casefold()
+                start_row = 2 if first in {"运单号", "tracking", "tracking number", "awb"} else 1
+                column = 1
+            else:
+                headers = {
+                    str(cell.value or "").strip().casefold(): cell.column
+                    for cell in sheet[1]
+                }
+                column = headers.get("运单号") or headers.get("tracking number") or headers.get("awb")
+                if not column:
+                    raise ValueError("多列表格需包含“运单号”列表头；单列 Excel 可直接放运单号")
+                start_row = 2
             numbers = [
                 sheet.cell(row, column).value
-                for row in range(2, sheet.max_row + 1)
+                for row in range(start_row, sheet.max_row + 1)
                 if sheet.cell(row, column).value not in (None, "")
             ]
         finally:
             workbook.close()
-        return self.add_numbers(numbers, source=str(source.resolve()))
+        normalized = []
+        seen = set()
+        for value in numbers:
+            try:
+                number = normalize_tracking_number(value)
+            except ValueError:
+                continue
+            if number not in seen:
+                seen.add(number)
+                normalized.append(number)
+        return normalized
 
     def tasks(self, states: Optional[Iterable[str]] = None) -> list[FedExPodTask]:
         wanted = set(states or ())

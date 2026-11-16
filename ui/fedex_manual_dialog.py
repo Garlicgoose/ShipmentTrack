@@ -8,8 +8,8 @@ import time
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QFileDialog, QHBoxLayout, QLabel, QListWidget,
-    QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout,
+    QApplication, QDialog, QFileDialog, QHBoxLayout, QLabel,
+    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout,
 )
 
 from modules.fedex_manual_pod import ManualFedExPodSession, ManualPodResult
@@ -24,6 +24,7 @@ from modules.fedex_pod_segmented import (
 )
 from modules.fedex_web_pod import FedExEdgePodSession
 from units import detect_browser_path
+from ui.components import ToggleSwitch
 
 
 def default_queue_path(output_dir) -> Path:
@@ -57,7 +58,6 @@ class ManualPodWorker(QThread):
         self.skip_event = threading.Event()
         self.retry_event = threading.Event()
         self.print_event = threading.Event()
-        self.next_event = threading.Event()
         self.pause_event = threading.Event()
         self.open_site_event = threading.Event()
 
@@ -79,11 +79,6 @@ class ManualPodWorker(QThread):
                 self.queue.skip(number)
                 self.queue_changed.emit()
                 return "skip"
-            if self.pause_event.is_set():
-                self.pause_event.clear()
-                self.queue.pause(number, "用户暂停")
-                self.queue_changed.emit()
-                return "pause"
             if self.retry_event.is_set():
                 self.retry_event.clear()
                 session.prepare(number)
@@ -110,8 +105,10 @@ class ManualPodWorker(QThread):
                         self.queue.mark_completed(number, main_pdf, saved.path)
                         self.completed.emit(ManualPodResult(number, main_pdf, saved.path))
                         self.stage_changed.emit(number, "completed")
-                        self.message.emit("两份 PDF 已保存。请点击“下一票”；程序不会切换网页。")
+                        self.message.emit("两份 PDF 已保存；下一票已自动复制。请在 FedEx 页面自行点击 TRACK。")
                     self.queue_changed.emit()
+                    if saved.page_type == "detail":
+                        return "paused" if self.pause_event.is_set() else "done"
                 except Exception as exc:
                     message = str(exc)
                     if any(word in message.casefold() for word in (
@@ -122,12 +119,6 @@ class ManualPodWorker(QThread):
                         self.message.emit(f"当前票已进入暂停列表：{message}")
                         return "pause"
                     self.message.emit(f"未保存：{message}")
-            if self.next_event.is_set():
-                self.next_event.clear()
-                current = self.queue.get(number)
-                if current and current.state == "completed":
-                    return "done"
-                self.message.emit("当前票尚未完成两份 PDF；可继续保存、暂停或跳过。")
             try:
                 if session.fill_after_user_click(number):
                     self.message.emit("单号已逐字输入，请点击 FedEx 的 TRACK。")
@@ -152,14 +143,24 @@ class ManualPodWorker(QThread):
             session.open_tracking_site()
             self.message.emit("已在受控浏览器中打开 FedEx Tracking；请只操作这个窗口。")
             while not self.stop_event.is_set():
+                if self.pause_event.is_set():
+                    break
                 task = self.queue.next_ready()
                 if task is None:
                     break
                 total = self.queue.counts()["total"]
                 self.current.emit(task.number, task.position, total)
-                if self._process(session, task) == "stop":
+                outcome = self._process(session, task)
+                if outcome in {"stop", "pause", "paused"}:
+                    if outcome == "paused":
+                        self.message.emit("已在当前运单完成后暂停；点击“恢复”处理下一票。")
                     break
-            self.finished_status.emit("已停止" if self.stop_event.is_set() else "当前可处理队列已结束")
+            if self.stop_event.is_set():
+                self.finished_status.emit("已停止，队列进度已保存")
+            elif self.pause_event.is_set() or self.queue.counts()["paused"]:
+                self.finished_status.emit("已暂停，可恢复当前运单或继续队列")
+            else:
+                self.finished_status.emit("当前可处理队列已结束")
         except Exception as exc:
             self.finished_status.emit(f"无法继续：{exc}")
         finally:
@@ -182,7 +183,7 @@ class ExperimentalAutoPodWorker(QThread):
         self.output_dir = Path(output_dir)
         self.edge_path = edge_path if Path(str(edge_path)).name.casefold() == "msedge.exe" else ""
         self.stop_event = threading.Event()
-        self.batch_limit = normalize_batch_limit(batch_limit)
+        self.batch_limit = max(1, int(batch_limit or AUTO_BATCH_LIMIT))
 
     def run(self):
         playwright = session = None
@@ -211,12 +212,13 @@ class ExperimentalAutoPodWorker(QThread):
                 log=self.message.emit,
                 completed_callback=completed,
                 stop_requested=self.stop_event.is_set,
+                direct_download=True,
             )
             if outcome.circuit_open:
-                message = "实验自动模式已熔断；失败票已进入暂停列表"
+                message = "自动连续下载已暂停；失败票可从暂停位置恢复"
             else:
                 message = (
-                    f"实验自动批次结束：处理 {outcome.processed}，"
+                    f"自动连续下载结束：处理 {outcome.processed}，"
                     f"完成 {outcome.completed}，暂停 {outcome.paused}"
                 )
             self.finished_status.emit(message)
@@ -313,13 +315,16 @@ class FedExManualDialog(QDialog):
     def __init__(self, numbers, output_dir, browser_type="edge", browser_path="",
                  parent=None, queue_path=None, auto_batch_limit=AUTO_BATCH_LIMIT):
         super().__init__(parent)
-        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.Window)
         self.setWindowModality(Qt.NonModal)
         self.setWindowTitle("FedEx POD 任务中心")
         self.resize(760, 500)
         self.setMinimumWidth(680)
         self.worker = None
-        self.numbers = list(numbers)
+        self._active = False
+        self._paused = False
+        self.numbers = list(dict.fromkeys(str(number) for number in numbers))
+        self._session_numbers = list(self.numbers)
         self.output_dir = Path(output_dir)
         self.browser_type = browser_type
         self.browser_path = browser_path
@@ -330,197 +335,237 @@ class FedExManualDialog(QDialog):
         self.current_number = ""
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(9)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(8)
+        header = QHBoxLayout()
         self.current_label = QLabel("FedEx POD 队列")
         self.current_label.setObjectName("sectionTitle")
-        layout.addWidget(self.current_label)
-        self.stage_label = QLabel("用户负责 TRACK 和详情；程序只在点击保存按钮时检查当前页面。")
+        header.addWidget(self.current_label, 1)
+        self.pin_switch = ToggleSwitch()
+        self.pin_switch.toggled.connect(self._set_pinned)
+        header.addWidget(QLabel("置顶"))
+        header.addWidget(self.pin_switch)
+        layout.addLayout(header)
+
+        self.stage_label = QLabel("自动模式保存官网主页和详情；手动模式由你操作 TRACK，并用“保存”保存当前页。")
+        self.stage_label.setObjectName("muted")
         layout.addWidget(self.stage_label)
 
-        mode_controls = QHBoxLayout()
-        self.start_button = QPushButton("打开浏览器并开始")
+        controls = QHBoxLayout()
+        self.automatic_switch = ToggleSwitch()
+        self.automatic_switch.setChecked(True)
+        self.automatic_label = QLabel("自动下载")
+        controls.addWidget(self.automatic_label)
+        controls.addWidget(self.automatic_switch)
+        self.segment_switch = ToggleSwitch()
+        self.segment_switch.setChecked(True)
+        self.segment_label = QLabel("分段")
+        controls.addWidget(self.segment_label)
+        controls.addWidget(self.segment_switch)
+        controls.addStretch(1)
+        self.refresh_button = QPushButton("刷新")
+        self.refresh_button.clicked.connect(self.refresh_queue)
+        controls.addWidget(self.refresh_button)
+        self.import_button = QPushButton("导入 Excel")
+        self.import_button.clicked.connect(self.import_excel)
+        controls.addWidget(self.import_button)
+        layout.addLayout(controls)
+
+        self.automatic_switch.toggled.connect(self._update_mode)
+        self.segment_switch.toggled.connect(self._update_mode)
+
+        actions = QHBoxLayout()
+        self.start_button = QPushButton("开始")
         self.start_button.setObjectName("primaryButton")
         self.start_button.clicked.connect(self.start)
-        self.segmented_button = QPushButton("自动分段下载")
-        self.segmented_button.setObjectName("primaryButton")
-        self.segmented_button.clicked.connect(self.start_segmented)
-        self.auto_button = QPushButton(f"实验自动处理（最多 {self.auto_batch_limit} 票）")
-        self.auto_button.clicked.connect(self.start_auto)
-        mode_controls.addWidget(self.start_button)
-        mode_controls.addWidget(self.segmented_button)
-        mode_controls.addWidget(self.auto_button)
-        layout.addLayout(mode_controls)
-
-        source_controls = QHBoxLayout()
-        self.import_button = QPushButton("添加 Excel")
-        self.import_button.clicked.connect(self.import_excel)
+        self.pause_button = QPushButton("暂停")
+        self.pause_button.clicked.connect(self.pause)
+        self.resume_button = QPushButton("恢复")
+        self.resume_button.clicked.connect(self.resume)
+        self.print_button = QPushButton("保存")
+        self.print_button.setObjectName("primaryButton")
+        self.print_button.clicked.connect(self.save_current_page)
         self.copy_button = QPushButton("复制当前单号")
         self.copy_button.clicked.connect(self.copy_current)
         self.connect_site_button = QPushButton("重新连接官网")
         self.connect_site_button.clicked.connect(self.open_tracking_site)
-        self.connect_site_button.setEnabled(False)
-        for button in (self.import_button, self.copy_button, self.connect_site_button):
-            source_controls.addWidget(button)
-        layout.addLayout(source_controls)
+        for button in (self.start_button, self.pause_button, self.resume_button,
+                       self.print_button, self.copy_button, self.connect_site_button):
+            actions.addWidget(button)
+        layout.addLayout(actions)
 
-        action_controls = QHBoxLayout()
-        self.print_button = QPushButton("保存当前页面 PDF")
-        self.print_button.setObjectName("primaryButton")
-        self.print_button.clicked.connect(self.save_current_page)
-        self.next_button = QPushButton("下一票")
-        self.next_button.clicked.connect(self.next_task)
-        self.pause_button = QPushButton("暂停当前")
-        self.pause_button.clicked.connect(self.pause_current)
-        self.skip_button = QPushButton("跳过当前")
-        self.skip_button.clicked.connect(self.skip)
-        self.retry_button = QPushButton("重新准备")
-        self.retry_button.clicked.connect(self.retry)
-        self.stop_button = QPushButton("停止")
-        self.stop_button.clicked.connect(self.stop)
-        for button in (self.print_button, self.next_button, self.pause_button,
-                       self.skip_button, self.retry_button, self.stop_button):
-            action_controls.addWidget(button)
-        layout.addLayout(action_controls)
-
-        layout.addWidget(QLabel("暂停列表（选择后可恢复）："))
-        paused_controls = QHBoxLayout()
-        self.paused_list = QListWidget()
-        self.paused_list.setMaximumHeight(74)
-        self.resume_button = QPushButton("恢复选中")
-        self.resume_button.clicked.connect(self.resume_selected)
-        paused_controls.addWidget(self.paused_list, 1)
-        paused_controls.addWidget(self.resume_button)
-        layout.addLayout(paused_controls)
-
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        layout.addWidget(self.progress)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        self.log.setPlaceholderText("运行日志")
         layout.addWidget(self.log, 1)
+        self._update_mode()
         self._refresh_queue()
+
+    def _set_pinned(self, pinned):
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, bool(pinned))
+        self.show()
+        self.raise_()
+
+    def _update_mode(self, *_args):
+        automatic = self.automatic_switch.isChecked()
+        self.segment_label.setText("分段" if self.segment_switch.isChecked() else "连续")
+        self.automatic_label.setText("自动下载" if automatic else "手动下载")
+        self.segment_switch.setVisible(automatic)
+        self.segment_label.setVisible(automatic)
+        self.print_button.setVisible(not automatic)
+        self.copy_button.setVisible(not automatic)
+        self.connect_site_button.setVisible(not automatic)
+        self.stage_label.setText(
+            "自动模式下载官网主页和详情；遇到问题会暂停当前运单。"
+            if automatic else
+            "手动模式：点击 TRACK、打开详情，再分别点“保存”；完成后自动复制下一票。"
+        )
+        for control in (self.automatic_switch, self.segment_switch):
+            control.setEnabled(not self._active)
+        self._refresh_controls()
 
     def _refresh_queue(self):
         counts = self.queue.counts()
-        if not self.current_number:
-            self.current_label.setText(
-                f"已完成 {counts['completed']} / {counts['total']}　"
-                f"待处理 {counts['pending'] + counts['main_saved']}　暂停 {counts['paused']}"
-            )
-        self.paused_list.clear()
-        for task in self.queue.tasks(("paused",)):
-            self.paused_list.addItem(f"{task.number}　{task.reason}")
+        total = counts["total"]
+        completed = counts["completed"]
+        ready = counts["pending"] + counts["main_saved"]
+        waiting = counts["paused"]
+        self.current_label.setText(
+            f"当前：{self.current_number}" if self.current_number else
+            f"已完成 {completed}/{total}　待处理 {ready}　暂停 {waiting}"
+        )
+        self.progress.setValue(round(100 * completed / total) if total else 0)
+        self._refresh_controls()
+
+    def _refresh_controls(self):
+        counts = self.queue.counts()
+        ready = counts["pending"] + counts["main_saved"]
+        can_run = ready > 0 or counts["paused"] > 0
         self.start_button.setEnabled(
-            not (self.worker and self.worker.isRunning())
-            and bool(counts["pending"] + counts["main_saved"])
+            not self._active and ready > 0 and not self._paused and counts["paused"] == 0
         )
-        self.auto_button.setEnabled(
-            not (self.worker and self.worker.isRunning())
-            and bool(counts["pending"] + counts["main_saved"])
-        )
-        self.segmented_button.setEnabled(
-            not (self.worker and self.worker.isRunning())
-            and bool(counts["pending"] + counts["main_saved"])
-        )
+        self.pause_button.setEnabled(self._active and not self._paused)
+        self.resume_button.setEnabled(not self._active and can_run and (self._paused or counts["paused"] > 0))
+        self.refresh_button.setEnabled(not self._active)
+        self.import_button.setEnabled(not self._active)
+        self.print_button.setEnabled(self._active and not self.automatic_switch.isChecked())
+        self.copy_button.setEnabled(not self._active and bool(self.current_number))
+        self.connect_site_button.setEnabled(self._active and not self.automatic_switch.isChecked())
 
     def start(self):
-        if self.worker and self.worker.isRunning():
+        if self._active:
             return
-        self.worker = ManualPodWorker([], self.output_dir, self.browser_type,
-                                      self.browser_path, self.queue.path, self)
-        self.worker.message.connect(self.log.appendPlainText)
-        self.worker.current.connect(self._set_current)
-        self.worker.stage_changed.connect(self._set_stage)
-        self.worker.copy_requested.connect(self._copy_number)
-        self.worker.completed.connect(self.completed)
-        self.worker.completed.connect(lambda _result: self._refresh_queue())
-        self.worker.queue_changed.connect(self._refresh_queue)
-        self.worker.finished_status.connect(self._finished)
-        self.start_button.setEnabled(False)
-        self.segmented_button.setEnabled(False)
-        self.auto_button.setEnabled(False)
-        self.import_button.setEnabled(False)
-        self.connect_site_button.setEnabled(True)
-        self.worker.start()
+        if self.automatic_switch.isChecked():
+            if self.segment_switch.isChecked():
+                self._start_segmented()
+            else:
+                self._start_continuous()
+        else:
+            self._start_manual()
 
     def start_segmented(self):
-        if self.worker and self.worker.isRunning():
-            return
-        ready = self.queue.counts()["pending"] + self.queue.counts()["main_saved"]
-        target = min(ready, SEGMENTED_MAX_JOBS)
-        segments = plan_segments(target)
-        plan_text = " + ".join(str(size) for size in segments) or "0"
-        answer = QMessageBox.question(
-            self,
-            "FedEx 自动分段下载",
-            f"本次最多处理 {SEGMENTED_MAX_JOBS} 票，当前计划：{plan_text}。\n"
-            f"票间约 {ITEM_INTERVAL_SECONDS} 秒，段间休息 "
-            f"{SEGMENT_PAUSE_SECONDS // 60} 分钟；使用官网直链，任一票失败会立即停止并弹窗。\n\n"
-            "是否开始自动分段下载？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
-            return
-        self.worker = SegmentedAutoPodWorker(
-            self.queue.path, self.output_dir, self.browser_path, self
-        )
-        self.worker.message.connect(self.log.appendPlainText)
-        self.worker.completed.connect(self.completed)
-        self.worker.completed.connect(lambda _result: self._refresh_queue())
-        self.worker.queue_changed.connect(self._refresh_queue)
-        self.worker.finished_status.connect(self._finished)
-        self.worker.failed.connect(self._show_segmented_failure)
-        self.start_button.setEnabled(False)
-        self.segmented_button.setEnabled(False)
-        self.auto_button.setEnabled(False)
-        self.import_button.setEnabled(False)
-        self.connect_site_button.setEnabled(False)
-        for button in (self.print_button, self.next_button, self.pause_button,
-                       self.skip_button, self.retry_button):
-            button.setEnabled(False)
-        self.log.appendPlainText(f"自动分段下载启动；本次计划：{plan_text}。")
-        self.worker.start()
+        self.automatic_switch.setChecked(True)
+        self.segment_switch.setChecked(True)
+        self.start()
 
     def start_auto(self):
-        if self.worker and self.worker.isRunning():
-            return
-        answer = QMessageBox.question(
-            self,
-            "FedEx 实验自动模式",
-            f"该模式默认关闭，本轮最多自动处理 {self.auto_batch_limit} 票；遇到限流、验证码或连续失败会立即熔断。\n\n"
-            "是否开始本轮实验自动处理？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+        self.automatic_switch.setChecked(True)
+        self.segment_switch.setChecked(False)
+        self.start()
+
+    def _wire_worker(self, worker):
+        self.worker = worker
+        worker.message.connect(self.log.appendPlainText)
+        worker.completed.connect(self.completed)
+        worker.completed.connect(lambda _result: self._refresh_queue())
+        worker.queue_changed.connect(self._refresh_queue)
+        worker.finished_status.connect(self._finished)
+        if isinstance(worker, ManualPodWorker):
+            worker.current.connect(self._set_current)
+            worker.stage_changed.connect(self._set_stage)
+            worker.copy_requested.connect(self._copy_number)
+        if isinstance(worker, SegmentedAutoPodWorker):
+            worker.failed.connect(self._show_segmented_failure)
+        self._active = True
+        self._paused = False
+        self._update_mode()
+        worker.start()
+
+    def _start_manual(self):
+        worker = ManualPodWorker([], self.output_dir, self.browser_type,
+                                 self.browser_path, self.queue.path, self)
+        self._wire_worker(worker)
+        self.log.appendPlainText("手动下载开始")
+
+    def _start_segmented(self):
+        worker = SegmentedAutoPodWorker(
+            self.queue.path, self.output_dir, self.browser_path, self
         )
-        if answer != QMessageBox.Yes:
-            return
-        self.worker = ExperimentalAutoPodWorker(
+        self._wire_worker(worker)
+        self.log.appendPlainText("自动分段下载开始")
+
+    def _start_continuous(self):
+        ready = self.queue.counts()["pending"] + self.queue.counts()["main_saved"]
+        worker = ExperimentalAutoPodWorker(
             self.queue.path, self.output_dir, self.browser_path, self,
-            batch_limit=self.auto_batch_limit,
+            batch_limit=max(1, ready),
         )
-        self.worker.message.connect(self.log.appendPlainText)
-        self.worker.completed.connect(self.completed)
-        self.worker.completed.connect(lambda _result: self._refresh_queue())
-        self.worker.queue_changed.connect(self._refresh_queue)
-        self.worker.finished_status.connect(self._finished)
-        self.start_button.setEnabled(False)
-        self.segmented_button.setEnabled(False)
-        self.auto_button.setEnabled(False)
-        self.import_button.setEnabled(False)
-        for button in (self.print_button, self.next_button, self.pause_button,
-                       self.skip_button, self.retry_button):
-            button.setEnabled(False)
-        self.log.appendPlainText(f"实验自动模式启动；本轮最多 {self.auto_batch_limit} 票。")
-        self.worker.start()
+        self._wire_worker(worker)
+        self.log.appendPlainText("自动连续下载开始")
+
+    def pause(self):
+        if not self._active or self.worker is None:
+            return
+        self._paused = True
+        if isinstance(self.worker, ManualPodWorker):
+            self.worker.pause_event.set()
+            self.log.appendPlainText("已请求暂停；当前运单完成后暂停队列")
+        else:
+            self.worker.stop_event.set()
+            self.log.appendPlainText("已请求暂停；当前运单完成后暂停队列")
+        self.pause_button.setEnabled(False)
+        self._refresh_controls()
+
+    def resume(self):
+        if self._active:
+            return
+        paused_tasks = self.queue.tasks(("paused",))
+        if paused_tasks:
+            task = paused_tasks[0]
+            self.queue.resume(task.number)
+            self.log.appendPlainText(f"恢复运单 {task.number}，从已保存阶段继续")
+        self._paused = False
+        self._refresh_queue()
+        self.start()
+
+    def refresh_queue(self):
+        if self._active:
+            return
+        numbers = list(dict.fromkeys(self._session_numbers))
+        old = len(self.queue.tasks())
+        kept = self.queue.retain_numbers(numbers, source="本次运单")
+        removed = max(0, old - len(kept))
+        self.queue.sync_existing_pdfs(self.output_dir)
+        self.current_number = ""
+        self.log.appendPlainText(
+            f"队列已刷新：移除 {removed} 个旧运单，保留本次 {len(kept)} 个；已有 PDF 保留。"
+        )
+        self._refresh_queue()
 
     def _set_current(self, number, index, total):
         self.current_number = number
-        self.current_label.setText(f"{index} / {total}　当前：{number}")
+        self.current_label.setText(f"{index}/{total}　当前：{number}")
+        self._refresh_controls()
 
     def _set_stage(self, number, stage):
         labels = {
-            "main": "等待查询主页：点击输入框、TRACK，然后保存当前页面",
-            "detail": "主页已保存：请点击 FedEx 详情，然后再次保存",
-            "completed": "两份 PDF 已保存：请点击“下一票”",
+            "main": "等待主页：点击 TRACK，确认结果后点“保存”",
+            "detail": "主页已保存：在 FedEx 页面打开详情后点“保存”",
+            "completed": "两页已保存；下一票已复制，请自行点击 TRACK",
         }
         if number == self.current_number:
             self.stage_label.setText(labels.get(stage, stage))
@@ -534,74 +579,51 @@ class FedExManualDialog(QDialog):
             self._copy_number(self.current_number)
 
     def import_excel(self):
-        if self.worker and self.worker.isRunning():
+        if self._active:
             return
-        path, _ = QFileDialog.getOpenFileName(self, "添加 FedEx POD Excel", "", "Excel (*.xlsx)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "导入 FedEx 运单", "", "Excel (*.xlsx *.xlsm)"
+        )
         if not path:
             return
         try:
-            added = self.queue.import_excel(path)
+            requested_numbers = self.queue.read_excel_numbers(path)
+            added = self.queue.add_numbers(
+                requested_numbers, source=str(Path(path).resolve())
+            )
+            self._session_numbers.extend(requested_numbers)
+            self._session_numbers = list(dict.fromkeys(self._session_numbers))
             self.queue.sync_existing_pdfs(self.output_dir)
         except Exception as exc:
             QMessageBox.warning(self, "ShipmentTrack", str(exc))
             return
-        self.log.appendPlainText(f"Excel 已添加 {len(added)} 个新运单：{path}")
+        self.log.appendPlainText(f"已导入 {len(added)} 个新运单")
         self._refresh_queue()
 
     def save_current_page(self):
-        if self.worker and self.worker.isRunning():
+        if isinstance(self.worker, ManualPodWorker) and self._active:
             self.worker.print_event.set()
 
-    def next_task(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.next_event.set()
-
-    def retry(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.retry_event.set()
-
     def open_tracking_site(self):
-        if isinstance(self.worker, ManualPodWorker) and self.worker.isRunning():
+        if isinstance(self.worker, ManualPodWorker) and self._active:
             self.worker.open_site_event.set()
-
-    def pause_current(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.pause_event.set()
-
-    def skip(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.skip_event.set()
-
-    def resume_selected(self):
-        selected = self.paused_list.selectedItems()
-        for item in selected:
-            self.queue.resume(item.text().split()[0])
-        if selected:
-            self.log.appendPlainText(f"已恢复 {len(selected)} 票到待处理队列")
-        self._refresh_queue()
-
-    def stop(self):
-        if self.worker:
-            self.worker.stop_event.set()
 
     def _finished(self, message):
         self.log.appendPlainText(message)
         self.current_number = ""
-        self.import_button.setEnabled(True)
-        self.connect_site_button.setEnabled(False)
-        for button in (self.print_button, self.next_button, self.pause_button,
-                       self.skip_button, self.retry_button):
-            button.setEnabled(True)
-        self._refresh_queue()
+        self._active = False
+        self.worker = None
         counts = self.queue.counts()
-        has_ready = bool(counts["pending"] + counts["main_saved"])
-        self.start_button.setEnabled(has_ready)
-        self.auto_button.setEnabled(has_ready)
-        self.segmented_button.setEnabled(has_ready)
+        has_work = bool(counts["pending"] + counts["main_saved"] + counts["paused"])
+        self._paused = has_work and (
+            self._paused or "暂停" in message or counts["paused"] > 0
+        )
+        self._update_mode()
+        self._refresh_queue()
         self.queue_finished.emit()
 
     def _show_segmented_failure(self, message):
-        QMessageBox.warning(self, "FedEx 分段下载已停止", str(message))
+        QMessageBox.warning(self, "FedEx 自动下载已暂停", str(message))
 
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
