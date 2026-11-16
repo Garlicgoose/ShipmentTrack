@@ -60,6 +60,32 @@ class TrackingRunnerTests(unittest.TestCase):
             result = load_workbook(output, data_only=True).active
             self.assertEqual("Delivered", result["C2"].value)
 
+    def test_ei_login_configuration_error_is_not_retried(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_file = root / "input.xlsx"
+            workbook = Workbook()
+            workbook.active.append(("快递公司", "运单号"))
+            workbook.active.append(("EI", "S123456"))
+            workbook.save(input_file)
+            session = mock.Mock()
+            session.query_one.return_value = {
+                "status": "Error",
+                "error": "S 开头的 EI 海运运单需要先配置 EI 邮箱和密码并完成登录",
+            }
+            manager = mock.Mock()
+            manager.start.return_value = mock.Mock()
+            with mock.patch(
+                "modules.tracking_runner.TrackingCarrierSession", return_value=session
+            ), mock.patch(
+                "playwright.sync_api.sync_playwright", return_value=manager
+            ), mock.patch("modules.tracking_runner.fedex_module.close_shared_session"):
+                run_tracking(
+                    input_file=input_file, output_dir=root / "out", save_pdf=False,
+                    login_wait_seconds=0,
+                )
+            session.query_one.assert_called_once()
+
     def test_pause_controller_is_checked_between_input_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

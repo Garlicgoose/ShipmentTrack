@@ -5,6 +5,38 @@ from modules import ei_module as ei
 
 
 class ExpeditorsParsingTests(unittest.TestCase):
+    def test_wait_matches_s_tracking_number_with_display_separators(self):
+        page = mock.Mock()
+        page.locator.return_value.inner_text.return_value = (
+            "Shipment S123-456 Status: In Transit"
+        )
+        page.evaluate.return_value = []
+        self.assertTrue(ei.wait_for_detail_page(page, "S123456"))
+
+    def test_s_ocean_query_without_ei_credentials_reports_login_requirement(self):
+        page = mock.Mock()
+        with mock.patch.object(ei, "EI_LOGIN_ENABLED", False):
+            result = ei.query_expeditors_one(page, "S123456", save_pdf=False)
+        self.assertEqual("Error", result["status"])
+        self.assertIn("配置 EI 邮箱和密码", result["error"])
+        page.goto.assert_not_called()
+
+    def test_dashboard_submit_clicks_real_track_button_not_guessed_coordinates(self):
+        input_box = mock.Mock()
+        button = mock.Mock()
+        page = mock.Mock()
+        page.locator.side_effect = lambda selector: (
+            mock.Mock(count=mock.Mock(return_value=1), nth=mock.Mock(return_value=button))
+            if selector == "button:has-text('TRACK')"
+            else mock.Mock(count=mock.Mock(return_value=0))
+        )
+        button.is_visible.return_value = True
+        button.inner_text.return_value = "TRACK"
+        button.get_attribute.return_value = ""
+        with mock.patch.object(ei.time, "sleep"):
+            self.assertTrue(ei.click_track_submit_button(page, input_box))
+        button.click.assert_called_once()
+        input_box.press.assert_not_called()
     def test_semantic_status_wins_over_route_and_history(self):
         page = mock.Mock()
         page.evaluate.return_value = [

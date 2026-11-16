@@ -193,7 +193,16 @@ def run_tracking(
                 # Carrier pages occasionally return a transient Error after a
                 # timeout or incomplete render. Retry that shipment once while
                 # retaining its position in the source list.
-                if str(raw_result.get("status", "")).strip().casefold() == "error":
+                error_text = str(raw_result.get("error", "") or "").casefold()
+                non_retryable_error = any(marker in error_text for marker in (
+                    "s 开头的 ei 海运运单需要先配置",
+                    "empty tracking number",
+                    "invalid tracking number",
+                ))
+                if (
+                    str(raw_result.get("status", "")).strip().casefold() == "error"
+                    and not non_retryable_error
+                ):
                     first_error = raw_result.get("error", "") or "承运商页面返回 Error"
                     log(f"{carrier} {tracking_number} 查询异常，等待后重试一次：{first_error}")
                     time.sleep(2)

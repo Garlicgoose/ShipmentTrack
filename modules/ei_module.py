@@ -364,6 +364,8 @@ def wait_for_detail_page(page, tracking_number):
         try:
             page_text = page.locator("body").inner_text(timeout=3000)
             page_text_upper = page_text.upper()
+            tracking_compact = re.sub(r"[^A-Z0-9]", "", tracking_text)
+            page_compact = re.sub(r"[^A-Z0-9]", "", page_text_upper)
 
             loading_words = ["LOADING", "PLEASE WAIT", "SEARCHING"]
             has_loading = any(word in page_text_upper for word in loading_words)
@@ -373,7 +375,7 @@ def wait_for_detail_page(page, tracking_number):
             # Wait until a supported current status is actually readable.
             status = extract_status(page_text, extract_labeled_status(page))
             if (
-                tracking_text in page_text_upper
+                tracking_compact in page_compact
                 and status not in {"", "Unknown"}
                 and not has_loading
             ):
@@ -458,20 +460,41 @@ def find_dashboard_track_input(page):
 
 
 def click_track_submit_button(page, input_box):
-    try:
-        box = input_box.bounding_box()
-        if box:
-            x = box["x"] + box["width"] + 25
-            y = box["y"] + box["height"] / 2
-            page.mouse.click(x, y)
-            time.sleep(3)
+    """Submit the Dashboard form by its real control, never a guessed coordinate."""
+    candidates = []
+    for selector in (
+        "button[type='submit']",
+        "button:has-text('TRACK')",
+        "button:has-text('Track')",
+        "button:has-text('Search')",
+        "[role='button']",
+    ):
+        try:
+            locators = page.locator(selector)
+            for index in range(locators.count()):
+                item = locators.nth(index)
+                if not item.is_visible(timeout=300):
+                    continue
+                label = " ".join((
+                    item.inner_text(timeout=300) or "",
+                    item.get_attribute("aria-label") or "",
+                    item.get_attribute("value") or "",
+                )).casefold()
+                if any(word in label for word in ("track", "search", "submit", "查询", "跟踪")):
+                    candidates.append(item)
+        except Exception:
+            continue
+    if candidates:
+        try:
+            candidates[-1].click(timeout=3000)
+            time.sleep(2)
             return True
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     try:
-        page.keyboard.press("Enter")
-        time.sleep(3)
+        input_box.press("Enter", timeout=3000)
+        time.sleep(2)
         return True
     except Exception:
         pass
@@ -509,7 +532,8 @@ def search_from_dashboard(page, tracking_number):
 
     input_box.fill(str(tracking_number).strip())
     time.sleep(0.5)
-    click_track_submit_button(page, input_box)
+    if not click_track_submit_button(page, input_box):
+        raise RuntimeError("未找到 EI Dashboard 的 TRACK 提交按钮，无法查询海运运单")
 
     loaded = wait_for_detail_page(page, tracking_number)
     if not loaded:
@@ -747,8 +771,8 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
     tracking_text = str(tracking_number).strip()
 
     if not EI_LOGIN_ENABLED and tracking_text.upper().startswith("S"):
-        result["status"] = "Skipped"
-        result["error"] = "EI未登录，S开头运单号必须登录后通过 Dashboard TRACK 输入框查询"
+        result["status"] = "Error"
+        result["error"] = "S 开头的 EI 海运运单需要先配置 EI 邮箱和密码并完成登录"
         print(f"{tracking_number} -> EI未登录，S开头跳过")
         return result
 
