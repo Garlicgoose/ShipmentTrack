@@ -67,6 +67,16 @@ class ExcelReconcileResult:
     issues: tuple[tuple[str, str, str], ...]
     unrecognized_files: tuple[Path, ...] = ()
     shipment_issues: tuple[ShipmentIssue, ...] = ()
+    droplist_sheet_checks: tuple["DroplistSheetCheck", ...] = ()
+
+
+@dataclass(frozen=True)
+class DroplistSheetCheck:
+    source_file: str
+    sheet: str
+    status: str
+    rows: int
+    detail: str = ""
 
 
 @dataclass
@@ -164,6 +174,40 @@ def _header_column(sheet, header_row: int, *names: str) -> int:
     return 0
 
 
+_DROPLIST_HEADER_ALIASES = {
+    "order": {"so", "sono", "sonumber", "sorder", "salesorder", "salesorderno", "orderno", "ordernumber"},
+    "quantity": {"qty", "quantity", "packedquantity", "packedqty", "shipmentqty", "cartonqty", "totalqty", "qtypcs", "quantityshipped", "quantityordered"},
+    "shipment": {"shipment", "shipmentno", "shipmentnumber", "shipmentid", "shipmentref", "shipmentreference", "shipmenttrackingno", "shipmenttrackingnumber"},
+    "awb": {"awb", "awbno", "awbnumber", "tracking", "trackingno", "trackingnumber", "waybill", "waybillno", "运单号"},
+}
+
+
+def _header_token(value):
+    return "".join(
+        char for char in unicodedata.normalize("NFKC", str(value or "")).casefold()
+        if char.isalnum()
+    )
+
+
+def _droplist_header_info(sheet):
+    """Find Droplist detail headers across common label and row variations."""
+    for header_row in range(1, min(sheet.max_row, 8) + 1):
+        columns = {}
+        for column in range(1, sheet.max_column + 1):
+            token = _header_token(_safe_value(sheet, header_row, column))
+            if not token:
+                continue
+            for kind, aliases in _DROPLIST_HEADER_ALIASES.items():
+                expanded_match = (
+                    kind == "quantity" and ("qty" in token or "quantity" in token)
+                )
+                if (token in aliases or expanded_match) and kind not in columns:
+                    columns[kind] = column
+        if "quantity" in columns and ("order" in columns or "shipment" in columns):
+            return header_row, columns
+    return None, {}
+
+
 def _inspection_source_rows(sheet, start_row: int, max_column: int) -> tuple[int, ...]:
     """Find real inspection details, using Shipment as the business end marker.
 
@@ -234,14 +278,18 @@ def _index_shipment_sheet(
     target_type: str,
     source_name: str,
 ) -> int:
-    shipment_column = _header_column(sheet, header_row, "Shipment")
+    shipment_column = _header_column(
+        sheet, header_row, "Shipment", "Shipment No", "Shipment Number", "Shipment ID", "Shipment Ref"
+    )
     if not shipment_column:
         return 0
     awb_column = _header_column(
-        sheet, header_row, "AWB", "AWB#", "Tracking", "Tracking Number", "运单号"
+        sheet, header_row,
+        "AWB", "AWB#", "AWB No", "Tracking", "Tracking No", "Tracking Number",
+        "Waybill", "Waybill No", "运单号"
     )
     quantity_column = _header_column(
-        sheet, header_row, "QTY", "Quantity", "Packed quantity"
+        sheet, header_row, "QTY", "Quantity", "Packed quantity", "Packed Qty", "Shipment Qty"
     ) or 6
     count = 0
     for row in range(header_row + 1, sheet.max_row + 1):
@@ -312,32 +360,23 @@ def _is_overseas_truck_filename(name: str) -> bool:
     )
 
 
-def _is_droplist_end_row(sheet, row: int, max_column: int) -> bool:
+def _is_droplist_end_row(
+    sheet, row: int, max_column: int, order_column: int = 1, quantity_column: int = 6
+) -> bool:
     first = _safe_value(sheet, row, 1)
     if isinstance(first, str):
         folded = first.casefold()
-        if "by fed-ex" in folded or "total" in folded:
+        if "by fed-ex" in folded or "total" in folded or "footer" in folded:
             return True
-    first_block_empty = all(
-        _safe_value(sheet, row, column) in (None, "")
-        for column in range(1, min(4, max_column) + 1)
-    )
-    second_block_empty = max_column >= 11 and all(
-        _safe_value(sheet, row, column) in (None, "")
-        for column in range(9, 12)
-    )
-    return first_block_empty or second_block_empty
+    order = _safe_value(sheet, row, order_column) if order_column else None
+    quantity = _safe_value(sheet, row, quantity_column) if quantity_column else None
+    return order in (None, "") and quantity in (None, "")
 
 
 def _is_droplist_data_sheet(sheet) -> bool:
-    """有效明细页不依赖页签名，只认第 3 行的业务表头。"""
-    if sheet.max_row < 4:
-        return False
-    headers = {
-        str(_safe_value(sheet, 3, column) or "").strip().casefold()
-        for column in range(1, sheet.max_column + 1)
-    }
-    return "s/o" in headers and "qty" in headers
+    """有效明细页按归一化后的订单/Shipment 与数量表头识别。"""
+    header_row, _columns = _droplist_header_info(sheet)
+    return bool(header_row and sheet.max_row > header_row)
 
 
 def _copy_column_layout(source_sheet, target_sheet, max_column):
@@ -647,7 +686,7 @@ def _merge_droplist(
     unrecognized_files: list[Path],
     reference_cache,
     shipment_index,
-) -> tuple[dict[tuple[str, str], float], int, int]:
+) -> tuple[dict[tuple[str, str], float], int, int, tuple[DroplistSheetCheck, ...]]:
     candidates = _xlsx_files(folder, recursive=True, excluded=excluded)
     files = [
         file for file in candidates
@@ -659,9 +698,25 @@ def _merge_droplist(
 
     totals: dict[tuple[str, str], float] = defaultdict(float)
     target_row = 1
+    layouts = {}
     fixed_columns = 0
+    for file in files:
+        probe = load_workbook(file, data_only=False, read_only=False)
+        try:
+            for source in probe.worksheets[1:]:
+                normalized_name = source.title.strip().casefold()
+                if normalized_name == "address" or re.fullmatch(r"sheet\s*\d*", normalized_name):
+                    continue
+                header_row, columns = _droplist_header_info(source)
+                if header_row:
+                    layouts[(file.resolve(), source.title)] = (header_row, columns, source.max_column)
+                    fixed_columns = max(fixed_columns, source.max_column)
+        finally:
+            probe.close()
     data_rows = 0
     processed_files = 0
+    sheet_checks = []
+    header_written = False
 
     for file in files:
         workbook = load_workbook(file, data_only=False)
@@ -683,42 +738,75 @@ def _merge_droplist(
         # The first sheet is the Droplist consolidated view (Shipment in J in
         # the supplied business files).  Use it once as the canonical Shipment
         # reconciliation source; detail sheets contain the same rows again.
+        summary_sheet = workbook.worksheets[0]
+        summary_header, _summary_columns = _droplist_header_info(summary_sheet)
+        summary_header = summary_header or 3
         summary_indexed = _index_shipment_sheet(
             shipment_index,
-            workbook.worksheets[0],
-            header_row=3,
+            summary_sheet,
+            header_row=summary_header,
             date=date_label,
             target_type=comparison_type,
             source_name=original_relative,
         )
+        sheet_checks.append(DroplistSheetCheck(
+            original_relative,
+            summary_sheet.title,
+            "总表" if summary_indexed else "无Shipment明细",
+            summary_indexed,
+            "该表只参与 Shipment 核对，不重复并入明细" if summary_indexed else "总表未识别到 Shipment 列",
+        ))
 
         file_rows = 0
         candidate_sheet_count = 0
         for sheet_name in workbook.sheetnames[1:]:
             normalized_name = sheet_name.strip().casefold()
             if normalized_name == "address" or re.fullmatch(r"sheet\s*\d*", normalized_name):
+                sheet_checks.append(DroplistSheetCheck(
+                    original_relative, sheet_name, "辅助页", 0, "按工作表名称跳过"
+                ))
                 continue
             source = workbook[sheet_name]
-            if not _is_droplist_data_sheet(source):
+            layout = layouts.get((file.resolve(), sheet_name))
+            if not layout:
+                sheet_checks.append(DroplistSheetCheck(
+                    original_relative, sheet_name, "未识别", 0,
+                    "前 8 行未找到订单/Shipment 与数量列；请检查此 Sheet 的表头",
+                ))
+                issues.append((
+                    "Droplist", f"{original_relative} / {sheet_name}",
+                    "Sheet 表头未识别：需包含 S/O 或 Shipment 类字段及 QTY/Quantity 类字段",
+                ))
                 continue
+            header_row, header_columns, max_column = layout
             candidate_sheet_count += 1
-            max_column = source.max_column
-            tracking_columns = identifier_columns(source, header_row=3)
+            tracking_columns = identifier_columns(source, header_row=header_row)
             _copy_column_layout(source, output_sheet, max_column)
             row_map = {}
-            if not fixed_columns:
-                fixed_columns = max_column
-                row_map[3] = target_row
-                _append_source_row(source, 3, output_sheet, target_row, fixed_columns)
+            if not header_written:
+                row_map[header_row] = target_row
+                _append_source_row(source, header_row, output_sheet, target_row, fixed_columns)
                 _append_metadata_headers(output_sheet, target_row, fixed_columns + 1)
                 target_row += 1
-            elif max_column != fixed_columns:
+                header_written = True
+            if max_column != fixed_columns:
                 issues.append(
-                    ("Droplist", source_label, f"列数 {max_column} 与首个数据表 {fixed_columns} 不一致")
+                    ("Droplist", f"{source_label} / {sheet_name}", f"列数 {max_column} 与统一列数 {fixed_columns} 不一致；已按表头行合并")
                 )
+            for column in range(1, max_column + 1):
+                if output_sheet.cell(1, column).value in (None, ""):
+                    header_cell = source.cell(header_row, column)
+                    if header_cell.value not in (None, ""):
+                        target_header = output_sheet.cell(1, column, header_cell.value)
+                        _copy_style(header_cell, target_header)
+            file_sheet_rows = 0
 
-            for source_row in range(4, source.max_row + 1):
-                if _is_droplist_end_row(source, source_row, max_column):
+            for source_row in range(header_row + 1, source.max_row + 1):
+                if _is_droplist_end_row(
+                    source, source_row, max_column,
+                    header_columns.get("order") or header_columns.get("shipment"),
+                    header_columns.get("quantity"),
+                ):
                     break
                 row_map[source_row] = target_row
                 _append_source_row(
@@ -745,12 +833,15 @@ def _merge_droplist(
                             if len(identifier) >= 3:
                                 reference_cache[date_label][comparison_type].add(identifier)
                     totals[(date_label, comparison_type)] += _quantity(
-                        _safe_value(source, source_row, 6)
+                        _safe_value(source, source_row, header_columns["quantity"])
                     )
                 if not summary_indexed:
-                    shipment_column = _header_column(source, 3, "Shipment")
+                    shipment_column = _header_column(
+                        source, header_row, "Shipment", "Shipment No", "Shipment Number", "Shipment ID"
+                    )
                     awb_column = _header_column(
-                        source, 3, "AWB", "AWB#", "Tracking", "Tracking Number", "运单号"
+                        source, header_row,
+                        "AWB", "AWB#", "Tracking", "Tracking Number", "运单号", "Waybill", "Waybill No"
                     )
                     if shipment_column:
                         _append_shipment_record(
@@ -758,23 +849,31 @@ def _merge_droplist(
                             date=date_label,
                             target_type=comparison_type,
                             shipment=_safe_value(source, source_row, shipment_column),
-                            quantity=_safe_value(source, source_row, 6),
+                            quantity=_safe_value(source, source_row, header_columns["quantity"]),
                             awb=_safe_value(source, source_row, awb_column) if awb_column else "",
                             source=f"{original_relative} / {sheet_name} / 第 {source_row} 行",
                         )
                 target_row += 1
                 data_rows += 1
                 file_rows += 1
+                file_sheet_rows += 1
             _copy_merged_ranges(source, output_sheet, row_map, fixed_columns)
+            sheet_checks.append(DroplistSheetCheck(
+                original_relative,
+                sheet_name,
+                "通过" if file_sheet_rows else "无数据",
+                file_sheet_rows,
+                f"识别到第 {header_row} 行表头；字段：订单/Shipment、数量",
+            ))
         if not file_rows:
             issues.append(("Droplist", source_label, "没有有效数据行"))
         else:
             processed_files += 1
         if not candidate_sheet_count:
-            issues.append(("Droplist", source_label, "未找到包含第3行 S/O、QTY 表头的明细页"))
+            issues.append(("Droplist", source_label, "未找到可识别的订单/Shipment 与数量表头明细页"))
         workbook.close()
 
-    return totals, processed_files, data_rows
+    return totals, processed_files, data_rows, tuple(sheet_checks)
 
 
 def _date_sort_key(label: str):
@@ -833,7 +932,7 @@ def _style_output(workbook) -> None:
     dark_fill = PatternFill("solid", fgColor="173F5F")
     light_fill = PatternFill("solid", fgColor="EAF2F7")
     # 合并明细页保留源文件格式；只格式化本程序新建的汇总和异常页。
-    for sheet_name in ("类型箱数", "核对汇总", "Shipment异常", "异常文件"):
+    for sheet_name in ("类型箱数", "核对汇总", "Shipment异常", "异常文件", "Droplist自检"):
         if sheet_name not in workbook.sheetnames:
             continue
         sheet = workbook[sheet_name]
@@ -910,10 +1009,11 @@ def merge_and_reconcile_excel(
     droplist_workbook = Workbook() if droplist_folder else None
     inspect_totals, display_totals, inspect_files, inspect_rows = {}, {}, 0, 0
     droplist_totals, droplist_files, droplist_rows = {}, 0, 0
+    droplist_sheet_checks = ()
     if droplist_workbook is not None:
         droplist_sheet = droplist_workbook.active
         droplist_sheet.title = "合并Droplist"
-        droplist_totals, droplist_files, droplist_rows = _merge_droplist(
+        droplist_totals, droplist_files, droplist_rows, droplist_sheet_checks = _merge_droplist(
             droplist_folder, droplist_sheet, mapper, excluded, issues,
             unrecognized_files, reference_cache, droplist_shipment_index
         )
@@ -989,12 +1089,22 @@ def merge_and_reconcile_excel(
                 "；".join(issue.droplist_sources),
             ))
 
+    if droplist_workbook is not None:
+        check_sheet = droplist_workbook.create_sheet("Droplist自检")
+        check_sheet.append(("来源文件", "Sheet", "结果", "合并行数", "检查说明"))
+        for check in droplist_sheet_checks:
+            check_sheet.append((
+                check.source_file, check.sheet, check.status, check.rows, check.detail
+            ))
+
     issue_sheet = summary_workbook.create_sheet("异常文件")
     issue_sheet.append(("来源", "文件", "问题"))
     for issue in issues:
         issue_sheet.append(issue)
 
     _style_output(summary_workbook)
+    if droplist_workbook is not None and droplist_workbook is not summary_workbook:
+        _style_output(droplist_workbook)
     if inspect_workbook is not None:
         inspect_workbook.save(inspect_output_file)
     if droplist_workbook is not None:
@@ -1013,4 +1123,5 @@ def merge_and_reconcile_excel(
         issues=tuple(issues),
         unrecognized_files=tuple(dict.fromkeys(unrecognized_files)),
         shipment_issues=shipment_issues,
+        droplist_sheet_checks=droplist_sheet_checks,
     )

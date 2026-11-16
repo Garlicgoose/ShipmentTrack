@@ -130,6 +130,24 @@ def create_shipment_droplist(path: Path, records):
     workbook.save(path)
 
 
+def create_droplist_different_sheet_headers(path: Path):
+    workbook = Workbook()
+    workbook.active.title = "Cover"
+    first = workbook.create_sheet("MPO detail")
+    first.append([])
+    first.append([])
+    first.append(["SO No", "Line", "P/N", "Company", "Country", "Qty", "By", "AWB No", "Delivery", "Shipment No"])
+    first.append(["SO-1", 10, "P1", "A", "US", 2, "UPS", "AWB-1", "D1", "SHIP-1"])
+
+    second = workbook.create_sheet("International")
+    second.append([])
+    second.append([])
+    second.append([])
+    second.append(["Sales Order", "Line", "P/N", "Company", "Country", "Packed Qty", "By", "Tracking Number", "Delivery", "Shipment Number"])
+    second.append(["SO-2", 20, "P2", "B", "US", 3, "UPS", "AWB-2", "D2", "SHIP-2"])
+    workbook.save(path)
+
+
 class ExcelReconcileTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -327,6 +345,39 @@ class ExcelReconcileTests(unittest.TestCase):
         ]
         self.assertTrue(any("2026-9-22-MPO" in str(value) for value in source_values))
 
+    def test_droplist_merges_sheets_with_header_aliases_and_reports_each_sheet(self):
+        day = self.droplist / "9.25 MPO"
+        day.mkdir()
+        source = day / "Drop shipment list.xlsx"
+        create_droplist_different_sheet_headers(source)
+        result = merge_and_reconcile_excel(
+            None, self.droplist, self.root / "output", self.rules
+        )
+        self.assertEqual(2, result.droplist_rows)
+        self.assertEqual(5, result.rows[0].droplist_quantity)
+        checks = {check.sheet: check for check in result.droplist_sheet_checks}
+        self.assertEqual("通过", checks["MPO detail"].status)
+        self.assertEqual(1, checks["MPO detail"].rows)
+        self.assertEqual("通过", checks["International"].status)
+        self.assertIn("Droplist自检", load_workbook(result.droplist_output_file).sheetnames)
+
+    def test_droplist_self_test_names_unrecognized_sheet(self):
+        day = self.droplist / "9.26 MPO"
+        day.mkdir()
+        source = day / "Drop shipment list.xlsx"
+        workbook = Workbook()
+        workbook.active.title = "Cover"
+        bad = workbook.create_sheet("Sea Cargo")
+        bad.append(["Reference", "Pieces"])
+        bad.append(["S123", 4])
+        workbook.save(source)
+        result = merge_and_reconcile_excel(
+            None, self.droplist, self.root / "output", self.rules
+        )
+        check = next(check for check in result.droplist_sheet_checks if check.sheet == "Sea Cargo")
+        self.assertEqual("未识别", check.status)
+        self.assertTrue(any("Sea Cargo" in issue[1] for issue in result.issues))
+
     def test_ambiguous_droplist_is_unrecognized_and_not_counted(self):
         day = self.droplist / "9.23"
         day.mkdir()
@@ -445,7 +496,10 @@ class ExcelReconcileTests(unittest.TestCase):
         self.assertEqual(6, droplist_result.rows[0].droplist_quantity)
         self.assertEqual("仅 Droplist 统计", droplist_result.rows[0].result)
         workbook = load_workbook(droplist_result.droplist_output_file)
-        self.assertEqual(["合并Droplist", "核对汇总", "异常文件"], workbook.sheetnames)
+        self.assertEqual(
+            ["合并Droplist", "核对汇总", "Droplist自检", "异常文件"],
+            workbook.sheetnames,
+        )
 
     def test_merge_requires_at_least_one_input_folder(self):
         with self.assertRaisesRegex(ValueError, "至少选择一个"):
@@ -523,7 +577,7 @@ class ExcelReconcileTests(unittest.TestCase):
             result = merge_and_reconcile_excel(
                 self.inspect, self.droplist, self.root / "output", self.rules
             )
-        self.assertEqual(1, sum(Path(call.args[0]) == drop_file for call in loader.call_args_list))
+        self.assertEqual(2, sum(Path(call.args[0]) == drop_file for call in loader.call_args_list))
         self.assertEqual((), result.unrecognized_files)
         self.assertEqual("MPO", result.rows[0].target_type)
         self.assertEqual(-28, result.rows[0].difference)
