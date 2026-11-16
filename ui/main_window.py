@@ -51,6 +51,7 @@ from ui.components import (
 )
 from ui.settings_page import SettingsPage
 from ui.fedex_manual_dialog import FedExManualDialog
+from ui.excel_issue_dialog import ExcelIssuesDialog, DroplistSheetCheckDialog
 from ui.unrecognized_files_dialog import UnrecognizedFilesDialog
 from ui.styles import APP_STYLE
 from ui.workers import PauseController, TaskWorker
@@ -80,6 +81,7 @@ class MainWindow(QMainWindow):
 
         self._tracking_worker = None
         self._tracking_pause = None
+        self._tracking_is_paused = False
         self._excel_worker = None
         self._update_check_worker = None
         self._update_download_worker = None
@@ -400,7 +402,13 @@ class MainWindow(QMainWindow):
         self.run_button = QPushButton("开始查询")
         self.run_button.setObjectName("primaryButton")
         self.run_button.clicked.connect(self._start_tracking)
-        fields.addWidget(self.run_button, 0, Qt.AlignBottom)
+        query_controls = QVBoxLayout()
+        query_controls.addWidget(self.run_button)
+        self.pause_tracking_button = QPushButton("暂停查询")
+        self.pause_tracking_button.clicked.connect(self._request_tracking_pause)
+        self.pause_tracking_button.setEnabled(False)
+        query_controls.addWidget(self.pause_tracking_button)
+        fields.addLayout(query_controls, 0)
         query_layout.addLayout(fields)
         progress_row = QHBoxLayout()
         self.tracking_progress = QProgressBar()
@@ -628,8 +636,12 @@ class MainWindow(QMainWindow):
         summary_row.addWidget(self.excel_summary, 1)
         self.open_inspect_output = OpenFileButton("打开合并检验表")
         self.open_droplist_output = OpenFileButton("打开合并 Droplist")
+        self.open_droplist_check = QPushButton("Droplist 自检")
+        self.open_droplist_check.setEnabled(False)
+        self.open_droplist_check.clicked.connect(self._show_droplist_sheet_checks)
         summary_row.addWidget(self.open_inspect_output)
         summary_row.addWidget(self.open_droplist_output)
+        summary_row.addWidget(self.open_droplist_check)
         results_layout.addLayout(summary_row)
         self.excel_table = QTableWidget(0, 6)
         self.excel_table.setObjectName("excelTable")
@@ -748,12 +760,13 @@ class MainWindow(QMainWindow):
 
     def _start_tracking(self):
         if self._tracking_pause is not None and self._tracking_worker and self._tracking_worker.isRunning():
-            if self.run_button.text() == "暂停查询":
-                self._request_tracking_pause()
-            else:
+            if self._tracking_is_paused:
                 self._tracking_pause.resume()
-                self.run_button.setText("暂停查询")
-                self.run_button.setToolTip("当前运单完成后暂停")
+                self._tracking_is_paused = False
+                self.run_button.setText("查询中…")
+                self.run_button.setEnabled(False)
+                self.pause_tracking_button.setText("暂停查询")
+                self.pause_tracking_button.setEnabled(True)
             return
         if not self._authorization_ready():
             return
@@ -807,7 +820,7 @@ class MainWindow(QMainWindow):
         run_settings = dict(settings)
         delivery_statuses = self.store.load_delivery_statuses()
 
-        def task(log, progress, item):
+        def task(log, progress, item, paused):
             from modules.tracking_runner import run_tracking
             return run_tracking(
                 input_file=run_settings["tracking_input_file"],
@@ -972,24 +985,31 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "运单详情", "\n".join(values))
 
     def _set_tracking_running(self, running):
-        self.run_button.setEnabled(True)
+        self.run_button.setEnabled(not running)
         self.tracking_input.setEnabled(not running)
         self.tracking_output.setEnabled(not running)
         self.pod_switch.setEnabled(not running)
-        self.run_button.setText("暂停查询" if running else "开始查询")
-        self.run_button.setToolTip("当前运单完成后暂停" if running else "")
+        if running:
+            self.run_button.setText("查询中…")
+            self.run_button.setToolTip("")
+            self.pause_tracking_button.setEnabled(True)
+            self.pause_tracking_button.setText("暂停查询")
+        else:
+            self.run_button.setText("开始查询")
+            self.pause_tracking_button.setEnabled(False)
 
     def _request_tracking_pause(self):
-        if self._tracking_pause is not None:
+        if self._tracking_pause is not None and not self._tracking_is_paused:
             self._tracking_pause.request_pause()
-            self.run_button.setEnabled(False)
-            self.run_button.setText("暂停中…")
-            self.run_button.setToolTip("当前运单完成后暂停")
+            self.pause_tracking_button.setEnabled(False)
+            self.pause_tracking_button.setText("暂停中…")
 
     def _tracking_paused(self):
+        self._tracking_is_paused = True
         self.run_button.setEnabled(True)
         self.run_button.setText("继续查询")
         self.run_button.setToolTip("继续处理尚未查询的运单")
+        self.pause_tracking_button.setEnabled(False)
 
     def _update_tracking_elapsed(self):
         if not self._tracking_elapsed.isValid():
@@ -1014,6 +1034,8 @@ class MainWindow(QMainWindow):
         self._tracking_timer.stop()
         self._update_tracking_elapsed()
         self._set_tracking_running(False)
+        self._tracking_is_paused = False
+        self._tracking_pause = None
         if ok:
             self.open_fedex_manual.setEnabled(bool(self._fedex_manual_jobs))
             self._animate_progress(self.tracking_progress, self._tracking_progress_anim, self.tracking_progress_text, 100)
@@ -1208,6 +1230,8 @@ class MainWindow(QMainWindow):
         self.open_inspect_output.set_path("")
         self.open_droplist_output.set_path("")
         self._excel_output_paths = {}
+        self._last_droplist_sheet_checks = ()
+        self.open_droplist_check.setEnabled(False)
         self._animate_progress(self.excel_progress, self._excel_progress_anim, self.excel_progress_text, 0)
 
         def task(log, progress, item):
@@ -1277,6 +1301,16 @@ class MainWindow(QMainWindow):
         if result.droplist_output_file:
             self._excel_output_paths["droplist"] = result.droplist_output_file
         self._refresh_output_buttons(1)
+        self._last_droplist_sheet_checks = tuple(
+            getattr(result, "droplist_sheet_checks", ()) or ()
+        )
+        self.open_droplist_check.setEnabled(bool(self._last_droplist_sheet_checks))
+        unrecognized_sheets = sum(
+            check.status == "未识别" for check in self._last_droplist_sheet_checks
+        )
+        self.excel_summary.setText(
+            self.excel_summary.text() + f"　未识别 Sheet {unrecognized_sheets} 个"
+        )
         if getattr(result, "unrecognized_files", ()):
             self._unrecognized_dialog = UnrecognizedFilesDialog(
                 result.unrecognized_files, self
@@ -1288,24 +1322,13 @@ class MainWindow(QMainWindow):
         shipment_issues = tuple(item.data(Qt.UserRole) or ()) if item else ()
         if not shipment_issues:
             return
-        lines = []
-        for issue in shipment_issues:
-            detail = f"Shipment {issue.shipment}：{issue.reason}"
-            if issue.reason == "运单错误" or "运单错误" in issue.reason:
-                inspect_awb = "、".join(issue.inspect_awbs) or "空"
-                droplist_awb = "、".join(issue.droplist_awbs) or "空"
-                detail += f"\n  检验表运单：{inspect_awb}\n  Droplist运单：{droplist_awb}"
-            if issue.reason == "数量不对" or "数量不对" in issue.reason:
-                detail += (
-                    f"\n  检验表数量：{issue.inspect_quantity:g}"
-                    f"；Droplist数量：{issue.droplist_quantity:g}"
-                )
-            lines.append(detail)
-        QMessageBox.warning(
-            self,
-            "Shipment 核对异常",
-            "\n\n".join(lines),
-        )
+        dialog = ExcelIssuesDialog(shipment_issues, self)
+        dialog.exec()
+
+    def _show_droplist_sheet_checks(self):
+        checks = getattr(self, "_last_droplist_sheet_checks", ())
+        if checks:
+            DroplistSheetCheckDialog(checks, self).exec()
 
     def _excel_finished(self, ok, error):
         self.excel_run_button.setEnabled(True)

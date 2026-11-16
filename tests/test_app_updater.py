@@ -94,11 +94,13 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertIn(str(target), script)
             popen.assert_called_once()
 
-    def test_in_app_changelog_reflects_v12(self):
+    def test_in_app_changelog_reflects_v13(self):
         self.assertEqual(
             (
-                "跟踪查询支持在当前运单完成后暂停，并从下一票继续",
-                "FedEx、EI、DHL 和 UPS 遇到临时查询错误时自动重试一次",
+                "FedEx POD 整理手动/自动、连续/分段模式，支持整票暂停、失败恢复、刷新和单列 Excel",
+                "EI S 海运使用 Dashboard 表单定位 TRACK，并等待运单号与状态完整显示",
+                "Droplist 支持变化的 Sheet 表头、自检定位和更清晰的 Shipment 异常详情",
+                "跟踪查询可在当前运单完成后暂停并继续",
                 "UPS POD 改用可见浏览器打印并拒绝保存空白 PDF",
                 "左下角改为应用信息入口，集中显示当前版本、更新日志和检查更新",
                 "修复独立发布包缺少运行组件时无法启动的问题",
@@ -109,8 +111,8 @@ class AppUpdaterTests(unittest.TestCase):
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.2")[1].split("## 1.0")[0]
-        for note in ("暂停", "重试", "UPS POD"):
+        section = changelog.split("## 1.3")[1].split("## 1.2")[0]
+        for note in ("FedEx POD", "EI S", "Droplist", "异常详情"):
             self.assertIn(note, section)
 
 

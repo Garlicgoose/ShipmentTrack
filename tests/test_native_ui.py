@@ -89,7 +89,7 @@ class NativeUiTests(unittest.TestCase):
                 for carrier, field in self.window.settings_page.audit_rate_inputs.items()
             },
         )
-        self.assertEqual("1.2", APP_VERSION)
+        self.assertEqual("1.3", APP_VERSION)
         popup_buttons = [
             button.text() for button in self.window.app_info_popup.findChildren(QPushButton)
         ]
@@ -352,13 +352,15 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual("●", pod_cell.text())
         self.assertEqual([str(main_pdf), str(detail_pdf)], pod_cell.data(Qt.UserRole))
 
-    def test_manual_pod_panel_stays_independent_when_main_is_minimized(self):
+    def test_manual_pod_panel_pin_is_opt_in_when_main_is_minimized(self):
         self.window._fedex_manual_jobs = ["541964339019"]
         self.window.tracking_output.set_value(self.temp_dir.name)
         self.window.show()
         self.window._open_fedex_manual()
         panel = self.window._fedex_manual_dialog
         self.assertIsNone(panel.parent())
+        self.assertFalse(panel.windowFlags() & Qt.WindowStaysOnTopHint)
+        panel.pin_switch.click()
         self.assertTrue(panel.windowFlags() & Qt.WindowStaysOnTopHint)
         self.window.showMinimized()
         self.app.processEvents()
@@ -434,19 +436,9 @@ class NativeUiTests(unittest.TestCase):
             save_settings.call_args.args[0]["fedex_api_secret"],
         )
 
-    def test_fedex_batch_setting_persists_and_rejects_invalid_input(self):
+    def test_fedex_settings_no_longer_expose_batch_limit(self):
         page = self.window.settings_page
-        page.fedex_auto_batch_limit.setText("25")
-        page.save()
-        self.assertEqual(25, self.store.load_settings()["fedex_auto_batch_limit"])
-        self.assertEqual(25, self.window.settings["fedex_auto_batch_limit"])
-        for value in ("0", "1001", ""):
-            page.fedex_auto_batch_limit.setText(value)
-            with mock.patch("ui.settings_page.QMessageBox.warning") as warning, \
-                 mock.patch.object(self.store, "save_settings") as save:
-                page.save()
-            warning.assert_called_once()
-            save.assert_not_called()
+        self.assertFalse(hasattr(page, "fedex_auto_batch_limit"))
 
     def test_settings_tabs_split_mapping_status_and_audit_rate_pages(self):
         page = self.window.settings_page
@@ -599,12 +591,16 @@ class NativeUiTests(unittest.TestCase):
 
     def test_clicking_problem_row_shows_shipment_and_reason(self):
         issue = SimpleNamespace(
+            date="2026/10/19",
+            target_type="MPO",
             shipment="SHIP-1001",
             reason="运单错误；数量不对",
             inspect_awbs=("AWB-OLD",),
             droplist_awbs=("AWB-NEW",),
             inspect_quantity=3,
             droplist_quantity=4,
+            inspect_sources=("inspect.xlsx / 第 2 行",),
+            droplist_sources=("drop.xlsx / Data / 第 3 行",),
         )
         row = SimpleNamespace(
             date="2026/10/19",
@@ -623,13 +619,9 @@ class NativeUiTests(unittest.TestCase):
         )
         self.window._show_excel_result(result)
         self.assertIn("点击查看", self.window.excel_table.item(0, 0).toolTip())
-        with mock.patch("ui.main_window.QMessageBox.warning") as warning:
+        with mock.patch("ui.main_window.ExcelIssuesDialog.exec") as execute:
             self.window._show_excel_shipment_issues(0, 0)
-        message = warning.call_args.args[2]
-        self.assertIn("SHIP-1001", message)
-        self.assertIn("运单错误", message)
-        self.assertIn("AWB-OLD", message)
-        self.assertIn("数量不对", message)
+        execute.assert_called_once()
 
     def test_excel_result_opens_review_dialog_for_unrecognized_files(self):
         unknown = Path(self.temp_dir.name) / "9.10 unknown.xlsx"
@@ -678,8 +670,8 @@ class NativeUiTests(unittest.TestCase):
 
         self.window._set_tracking_running(True)
         self.assertTrue(self.window.excel_run_button.isEnabled())
-        self.assertTrue(self.window.run_button.isEnabled())
-        self.assertEqual("暂停查询", self.window.run_button.text())
+        self.assertFalse(self.window.run_button.isEnabled())
+        self.assertTrue(self.window.pause_tracking_button.isEnabled())
         self.window.excel_run_button.setEnabled(False)
         self.assertFalse(self.window.excel_run_button.isEnabled())
         self.window._set_tracking_running(False)
