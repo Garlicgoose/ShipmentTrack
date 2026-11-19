@@ -28,6 +28,7 @@ class ExpeditorsParsingTests(unittest.TestCase):
         response = {
             "data": {
                 "guestShipmentSearch": {
+                    "shipmentAttributes": {"expeditorsReference": "6911659574"},
                     "status": {
                         "description": "Services Completed: Notified Customers Broker",
                         "lastStatusChangeEvent": {
@@ -56,6 +57,39 @@ class ExpeditorsParsingTests(unittest.TestCase):
                 {**request, "operationName": "retrieveShipmentByReferenceNumberForGuest"},
                 response,
                 "S915237776",
+            )
+        )
+
+    def test_graphql_arrival_status_matches_internal_reference_from_search(self):
+        request = {
+            "operationName": "retrieveShipmentByReferenceNumberForGuest",
+            "variables": {"shipmentId": "6911659574"},
+        }
+        response = {
+            "data": {
+                "shipment": {
+                    "shipmentAttributes": {"expeditorsReference": "6911659574"},
+                    "shipmentArrivalStatus": {
+                        "overallStatus": "Completed",
+                        "targetStatusEvent": {
+                            "description": "Arrived at Final Port",
+                            "formattedDate": "13-Oct-2026",
+                        },
+                    },
+                }
+            }
+        }
+
+        result = ei.extract_graphql_arrival_status(
+            request, response, "6911659574"
+        )
+
+        self.assertEqual("Completed", result["status"])
+        self.assertEqual("Arrived at Final Port", result["target_status_event"])
+        self.assertEqual("2026/10/13", result["status_date"])
+        self.assertIsNone(
+            ei.extract_graphql_arrival_status(
+                request, response, "different-shipment"
             )
         )
 
@@ -189,6 +223,7 @@ class ExpeditorsParsingTests(unittest.TestCase):
     def test_s_query_uses_status_from_matching_graphql_request(self):
         page = mock.Mock()
         page.locator.return_value.inner_text.return_value = "Shipment results"
+        page.evaluate.return_value = []
         request = mock.Mock()
         request.post_data_json = {
             "operationName": "guestSearchShipmentsByReferenceNumber",
@@ -201,6 +236,7 @@ class ExpeditorsParsingTests(unittest.TestCase):
         response.json.return_value = {
             "data": {
                 "guestShipmentSearch": {
+                    "shipmentAttributes": {"expeditorsReference": "6911659574"},
                     "status": {
                         "description": "Services Completed: Notified Customers Broker",
                         "lastStatusChangeEvent": {
@@ -211,6 +247,29 @@ class ExpeditorsParsingTests(unittest.TestCase):
                 }
             }
         }
+        arrival_request = mock.Mock()
+        arrival_request.post_data_json = {
+            "operationName": "retrieveShipmentByReferenceNumberForGuest",
+            "variables": {"shipmentId": "6911659574"},
+        }
+        arrival_response = mock.Mock()
+        arrival_response.url = "https://go2expo.expeditors.com/graphql"
+        arrival_response.request = arrival_request
+        arrival_response.status = 200
+        arrival_response.json.return_value = {
+            "data": {
+                "shipment": {
+                    "shipmentAttributes": {"expeditorsReference": "6911659574"},
+                    "shipmentArrivalStatus": {
+                        "overallStatus": "Completed",
+                        "targetStatusEvent": {
+                            "description": "Arrived at Final Port",
+                            "formattedDate": "13-Oct-2026",
+                        },
+                    },
+                }
+            }
+        }
         callbacks = {}
 
         def capture_listener(_event, listener):
@@ -218,6 +277,7 @@ class ExpeditorsParsingTests(unittest.TestCase):
 
         def open_page(_page, _tracking_number, result_ready=None):
             callbacks["listener"](response)
+            callbacks["listener"](arrival_response)
             self.assertTrue(result_ready())
             return True
 
@@ -228,8 +288,9 @@ class ExpeditorsParsingTests(unittest.TestCase):
              mock.patch.object(ei, "remove_overlays"):
             result = ei.query_expeditors_one(page, "S915237776", save_pdf=False)
 
-        self.assertEqual("Services Completed", result["status"])
-        self.assertFalse(result["is_delivered"])
+        self.assertEqual("Completed", result["status"])
+        self.assertTrue(result["is_delivered"])
+        self.assertEqual("2026/10/13", result["arrival_time"])
         page.remove_listener.assert_called_once_with("response", callbacks["listener"])
 
 

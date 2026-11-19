@@ -693,6 +693,7 @@ def extract_graphql_tracking_result(
     status = status if isinstance(status, dict) else {}
     event = status.get("lastStatusChangeEvent") or {}
     event = event if isinstance(event, dict) else {}
+    attributes = shipment.get("shipmentAttributes") or {}
     raw_status = normalize_page_text(status.get("description", ""))
     event_date = event.get("formattedDate") or event.get("date") or ""
     return {
@@ -700,6 +701,54 @@ def extract_graphql_tracking_result(
         "raw_status": raw_status,
         "status": _canonical_status(raw_status) or "Unknown",
         "last_event": normalize_page_text(event.get("description", "")),
+        "status_date": parse_expeditors_date(event_date),
+        "_correlation_reference": (
+            str(attributes.get("expeditorsReference") or "")
+            if isinstance(attributes, dict)
+            else ""
+        ),
+    }
+
+
+def extract_graphql_arrival_status(
+    request_payload, response_payload, correlation_reference, http_status=200
+):
+    """Read the arrival status only from the detail response for the same shipment."""
+    if not correlation_reference or not isinstance(request_payload, dict):
+        return None
+    if request_payload.get("operationName") != "retrieveShipmentByReferenceNumberForGuest":
+        return None
+    if http_status < 200 or http_status >= 300 or not isinstance(response_payload, dict):
+        return None
+    if response_payload.get("errors"):
+        return None
+
+    data = response_payload.get("data")
+    shipment = data.get("shipment") if isinstance(data, dict) else None
+    if not isinstance(shipment, dict):
+        return None
+    attributes = shipment.get("shipmentAttributes") or {}
+    returned_reference = (
+        attributes.get("expeditorsReference") if isinstance(attributes, dict) else ""
+    )
+    if _normalize_ei_reference(returned_reference) != _normalize_ei_reference(
+        correlation_reference
+    ):
+        return None
+
+    arrival = shipment.get("shipmentArrivalStatus") or {}
+    if not isinstance(arrival, dict):
+        return None
+    raw_status = normalize_page_text(arrival.get("overallStatus", ""))
+    if not raw_status:
+        return None
+    target_event = arrival.get("targetStatusEvent") or {}
+    target_event = target_event if isinstance(target_event, dict) else {}
+    event_date = target_event.get("formattedDate") or target_event.get("date") or ""
+    return {
+        "raw_status": raw_status,
+        "status": _canonical_status(raw_status) or "Unknown",
+        "target_status_event": normalize_page_text(target_event.get("description", "")),
         "status_date": parse_expeditors_date(event_date),
     }
 
@@ -875,6 +924,7 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
 
     try:
         graphql_results = []
+        arrival_status_results = []
         response_handler = None
         is_ocean_reference = tracking_text.upper().startswith("S")
         if is_ocean_reference:
@@ -892,6 +942,16 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
                     )
                     if extracted is not None:
                         graphql_results.append(extracted)
+                        return
+                    if graphql_results:
+                        arrival_status = extract_graphql_arrival_status(
+                            request_payload,
+                            response_payload,
+                            graphql_results[-1].get("_correlation_reference", ""),
+                            http_status=response.status,
+                        )
+                        if arrival_status is not None:
+                            arrival_status_results.append(arrival_status)
                 except Exception:
                     # Keep waiting for a usable response; the normal page parser
                     # remains available as a fallback if this site request changes.
@@ -906,6 +966,14 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
                 tracking_text,
                 result_ready=(lambda: bool(graphql_results)) if is_ocean_reference else None,
             )
+            if graphql_results:
+                first_result = graphql_results[-1]
+                if not first_result.get("error") and not first_result.get("no_result"):
+                    # The current site loads the display/arrival status in a
+                    # second GraphQL request after the exact-reference search.
+                    deadline = time.monotonic() + 3
+                    while not arrival_status_results and time.monotonic() < deadline:
+                        page.wait_for_timeout(100)
         finally:
             if response_handler:
                 try:
@@ -930,6 +998,7 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
             return result
 
         graphql_result = graphql_results[-1] if graphql_results else None
+        arrival_status = arrival_status_results[-1] if arrival_status_results else None
         if graphql_result and graphql_result.get("error"):
             result["status"] = "Error"
             result["error"] = graphql_result["error"]
@@ -947,15 +1016,23 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
         if graphql_result:
             # The current EI site returns the S-number search result through
             # GraphQL, while the page body can remain an empty results shell.
-            # Use only the response tied to the exact reference sent above.
-            status = graphql_result.get("status") or "Unknown"
+            # Use only the exact-reference search and its matching shipment detail.
+            page_status = extract_status(page_text, extract_labeled_status(page))
+            arrival_status_value = (arrival_status or {}).get("status", "")
+            if arrival_status_value and arrival_status_value != "Unknown":
+                status = arrival_status_value
+            elif page_status != "Unknown":
+                status = page_status
+            else:
+                status = graphql_result.get("status") or "Unknown"
         else:
             status = extract_status(page_text, extract_labeled_status(page))
         result["status"] = status
 
         arrival_time = (
-            (graphql_result or {}).get("status_date")
-            or get_arrival_time(page_text)
+            get_arrival_time(page_text)
+            or (arrival_status or {}).get("status_date")
+            or (graphql_result or {}).get("status_date")
         )
 
         if is_expeditors_delivered(status, page_text):
