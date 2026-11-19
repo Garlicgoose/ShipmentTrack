@@ -37,6 +37,7 @@ class AppUpdaterTests(unittest.TestCase):
         }
 
     def test_version_comparison_is_numeric(self):
+        self.assertTrue(app_updater.is_newer_version("1.3.1", "1.3"))
         self.assertTrue(app_updater.is_newer_version("0.93", "0.92"))
         self.assertTrue(app_updater.is_newer_version("1.10", "1.9"))
         self.assertTrue(app_updater.is_newer_version("1.4", "1.3"))
@@ -97,6 +98,7 @@ class AppUpdaterTests(unittest.TestCase):
     def test_in_app_changelog_reflects_v13(self):
         self.assertEqual(
             (
+                "修复 EI S 海运单状态读取；页面使用内部运单号时仍按当前查询正确匹配官网状态",
                 "FedEx POD 整理手动/自动、连续/分段模式，支持整票暂停、失败恢复、刷新和单列 Excel",
                 "EI S 海运使用 Dashboard 表单定位 TRACK，并等待运单号与状态完整显示",
                 "Droplist 支持变化的 Sheet 表头、自检定位和更清晰的 Shipment 异常详情",
@@ -112,7 +114,9 @@ class AppUpdaterTests(unittest.TestCase):
 
     def test_changelog_file_matches_release_notes(self):
         changelog = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text("utf-8")
-        section = changelog.split("## 1.3")[1].split("## 1.2")[0]
+        patch_section = changelog.split("## 1.3.1")[1].split("## 1.3")[0]
+        self.assertIn("EI S", patch_section)
+        section = changelog.split("## 1.3 -", 1)[1].split("## 1.2 -", 1)[0]
         for note in ("FedEx POD", "EI S", "Droplist", "UPS POD", "异常详情"):
             self.assertIn(note, section)
 

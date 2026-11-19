@@ -16,11 +16,12 @@ from urllib.request import Request, urlopen
 from units import get_data_path
 
 
-CURRENT_VERSION = "1.3"
+CURRENT_VERSION = "1.3.1"
 UPDATE_MANIFEST_URL = (
     "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/main/release/update.json"
 )
 CURRENT_CHANGELOG = (
+    "修复 EI S 海运单状态读取；页面使用内部运单号时仍按当前查询正确匹配官网状态",
     "FedEx POD 整理手动/自动、连续/分段模式，支持整票暂停、失败恢复、刷新和单列 Excel",
     "EI S 海运使用 Dashboard 表单定位 TRACK，并等待运单号与状态完整显示",
     "Droplist 支持变化的 Sheet 表头、自检定位和更清晰的 Shipment 异常详情",

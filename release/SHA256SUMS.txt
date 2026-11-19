@@ -1,2 +1,3 @@
-45d03aa63584fc8985757001a328321beb9686860baa1cd356753cdb3310fadf  Shipment Track.exe
+125b03bbfc63c4f213b5487cb25875da9ce4dae1f7cd139e674fc2e90bb94bc1  Shipment Track.exe
 33734c75151140115616f8fb82f60bf231adcbce71bab96aedbdfa04c8d1d855  ShipmentTrack-1.3-windows-x64.zip
+e07ebff3238caaa9f7b97c96e02a1c39f7a4d11c8afba74e9d40472e0bd987f4  ShipmentTrack-1.3.1-windows-x64.zip

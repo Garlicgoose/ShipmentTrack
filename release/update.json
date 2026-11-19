@@ -1,12 +1,12 @@
 {
-  "version": "1.3",
-  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.3-20261116/release/Shipment%20Track.exe",
-  "sha256": "45d03aa63584fc8985757001a328321beb9686860baa1cd356753cdb3310fadf",
+  "version": "1.3.1",
+  "exe_url": "https://raw.githubusercontent.com/Garlicgoose/ShipmentTrack/v1.3.1-20261119/release/Shipment%20Track.exe",
+  "sha256": "125b03bbfc63c4f213b5487cb25875da9ce4dae1f7cd139e674fc2e90bb94bc1",
   "notes": [
-    "FedEx POD 增加手动、自动、连续和分段模式，支持队列刷新、失败恢复及单列 Excel。",
-    "修复 EI S 开头海运运单的 Dashboard 查询与登录提示。",
-    "UPS POD 校验当前运单号，空白或错单时重打一次。",
-    "Droplist 支持变化的 Sheet 表头、自检定位和 Shipment 异常详情表。",
+    "修复 EI S 海运查询状态读取：官网详情页使用内部运单号时，仍能匹配本次 S 单及对应到港状态。",
+    "FedEx POD 支持自动/手动、连续/分段模式，队列刷新与失败恢复。",
+    "UPS POD 校验 PDF 运单号，避免空白或错单文件。",
+    "Droplist 支持不同 Sheet 表头、自检定位与 Shipment 异常详情。",
     "跟踪查询支持当前运单完成后暂停并继续。"
   ]
 }
