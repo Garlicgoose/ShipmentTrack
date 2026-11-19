@@ -357,10 +357,15 @@ def build_detail_url(tracking_number):
     return ANONYMOUS_DETAIL_URL.format(tracking_number=quote(tracking_text))
 
 
-def wait_for_detail_page(page, tracking_number):
+def wait_for_detail_page(page, tracking_number, result_ready=None):
     tracking_text = str(tracking_number).strip().upper()
 
     for _ in range(45):
+        try:
+            if result_ready and result_ready():
+                return True
+        except Exception:
+            pass
         try:
             page_text = page.locator("body").inner_text(timeout=3000)
             page_text_upper = page_text.upper()
@@ -461,6 +466,19 @@ def find_dashboard_track_input(page):
 
 def click_track_submit_button(page, input_box):
     """Submit the Dashboard form by its real control, never a guessed coordinate."""
+    # Current EXP.O NOW uses an unlabeled arrow button for this form. Prefer
+    # that real submit control; text-based lookup below remains for older pages.
+    try:
+        arrow_buttons = page.locator("button[type='submit'].arrow-authenticated:visible")
+        for index in range(arrow_buttons.count()):
+            item = arrow_buttons.nth(index)
+            if item.is_visible(timeout=300):
+                item.click(timeout=3000)
+                time.sleep(1)
+                return True
+    except Exception:
+        pass
+
     candidates = []
     for selector in (
         "button[type='submit']",
@@ -502,7 +520,7 @@ def click_track_submit_button(page, input_box):
     return False
 
 
-def search_from_dashboard(page, tracking_number):
+def search_from_dashboard(page, tracking_number, result_ready=None):
     page.goto(DASHBOARD_URL, wait_until="domcontentloaded", timeout=60000)
     wait_page_ready(page)
     time.sleep(2)
@@ -535,31 +553,31 @@ def search_from_dashboard(page, tracking_number):
     if not click_track_submit_button(page, input_box):
         raise RuntimeError("未找到 EI Dashboard 的 TRACK 提交按钮，无法查询海运运单")
 
-    loaded = wait_for_detail_page(page, tracking_number)
+    loaded = wait_for_detail_page(page, tracking_number, result_ready=result_ready)
     if not loaded:
         print(f"{tracking_number} -> Dashboard查询未进入详情页")
 
     return loaded
 
 
-def open_expeditors_detail_page(page, tracking_number):
+def open_expeditors_detail_page(page, tracking_number, result_ready=None):
     tracking_text = str(tracking_number).strip()
 
     # S 开头必须从 Dashboard 左侧 TRACK 输入框查询，不能直接拼详情链接。
     if tracking_text.upper().startswith("S"):
-        loaded = search_from_dashboard(page, tracking_text)
+        loaded = search_from_dashboard(page, tracking_text, result_ready=result_ready)
     else:
         url = build_detail_url(tracking_text)
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
         wait_page_ready(page)
         time.sleep(2)
         close_expo_welcome_popup_once(page)
-        loaded = wait_for_detail_page(page, tracking_text)
+        loaded = wait_for_detail_page(page, tracking_text, result_ready=result_ready)
 
         # 非 S 单号链接异常时，再用 Dashboard 输入框兜底一次。
         if not loaded and EI_LOGIN_ENABLED:
             print(f"{tracking_number} -> 直接链接未识别，改用 Dashboard TRACK 输入框查询")
-            loaded = search_from_dashboard(page, tracking_text)
+            loaded = search_from_dashboard(page, tracking_text, result_ready=result_ready)
 
     if not loaded:
         print(f"{tracking_number} -> EI详情页未完全加载或未识别到单号")
@@ -605,6 +623,85 @@ def _canonical_status(value):
         if re.search(rf"(?<![A-Za-z]){re.escape(status)}(?![A-Za-z])", text, re.IGNORECASE):
             return status
     return ""
+
+
+def _normalize_ei_reference(value):
+    return re.sub(r"[^0-9A-Za-z]", "", str(value or "")).casefold()
+
+
+def _payload_has_exact_ei_reference(value, tracking_number):
+    expected = _normalize_ei_reference(tracking_number)
+    if not expected:
+        return False
+    if isinstance(value, dict):
+        return any(
+            _payload_has_exact_ei_reference(child, expected)
+            for child in value.values()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(
+            _payload_has_exact_ei_reference(child, expected)
+            for child in value
+        )
+    if isinstance(value, str):
+        return _normalize_ei_reference(value) == expected
+    return False
+
+
+def extract_graphql_tracking_result(
+    request_payload, response_payload, tracking_number, http_status=200
+):
+    """Read a Dashboard search response only when its request contains this exact S number."""
+    if not isinstance(request_payload, dict):
+        return None
+    if request_payload.get("operationName") != "guestSearchShipmentsByReferenceNumber":
+        return None
+    variables = request_payload.get("variables", request_payload)
+    if not _payload_has_exact_ei_reference(variables, tracking_number):
+        return None
+    if http_status < 200 or http_status >= 300:
+        return {"error": f"EI 查询接口返回 HTTP {http_status}", "no_result": False}
+    if not isinstance(response_payload, dict):
+        return {"error": "EI 查询接口返回了无法解析的数据", "no_result": False}
+
+    errors = response_payload.get("errors") or []
+    if errors:
+        messages = "；".join(
+            normalize_page_text(error.get("message", ""))
+            for error in errors[:3]
+            if isinstance(error, dict) and error.get("message")
+        )
+        return {
+            "error": f"EI 查询接口错误：{messages or '未知 GraphQL 错误'}",
+            "no_result": False,
+        }
+
+    data = response_payload.get("data")
+    if not isinstance(data, dict) or "guestShipmentSearch" not in data:
+        return {"error": "EI 查询接口未返回 Shipment 查询结果", "no_result": False}
+    shipment = data.get("guestShipmentSearch")
+    if shipment is None:
+        return {
+            "no_result": True,
+            "status": "No result",
+            "error": "EI 官网未找到该 Shipment Reference",
+        }
+    if not isinstance(shipment, dict):
+        return {"error": "EI 查询接口返回的运单结构无效", "no_result": False}
+
+    status = shipment.get("status")
+    status = status if isinstance(status, dict) else {}
+    event = status.get("lastStatusChangeEvent") or {}
+    event = event if isinstance(event, dict) else {}
+    raw_status = normalize_page_text(status.get("description", ""))
+    event_date = event.get("formattedDate") or event.get("date") or ""
+    return {
+        "no_result": False,
+        "raw_status": raw_status,
+        "status": _canonical_status(raw_status) or "Unknown",
+        "last_event": normalize_page_text(event.get("description", "")),
+        "status_date": parse_expeditors_date(event_date),
+    }
 
 
 def extract_labeled_status(page):
@@ -777,7 +874,45 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
         return result
 
     try:
-        loaded = open_expeditors_detail_page(page, tracking_text)
+        graphql_results = []
+        response_handler = None
+        is_ocean_reference = tracking_text.upper().startswith("S")
+        if is_ocean_reference:
+            def capture_search_response(response):
+                try:
+                    if "/graphql" not in str(response.url).lower():
+                        return
+                    request_payload = response.request.post_data_json
+                    response_payload = response.json()
+                    extracted = extract_graphql_tracking_result(
+                        request_payload,
+                        response_payload,
+                        tracking_text,
+                        http_status=response.status,
+                    )
+                    if extracted is not None:
+                        graphql_results.append(extracted)
+                except Exception:
+                    # Keep waiting for a usable response; the normal page parser
+                    # remains available as a fallback if this site request changes.
+                    pass
+
+            response_handler = capture_search_response
+            page.on("response", response_handler)
+
+        try:
+            loaded = open_expeditors_detail_page(
+                page,
+                tracking_text,
+                result_ready=(lambda: bool(graphql_results)) if is_ocean_reference else None,
+            )
+        finally:
+            if response_handler:
+                try:
+                    page.remove_listener("response", response_handler)
+                except Exception:
+                    pass
+
         close_expo_welcome_popup_once(page)
         remove_overlays(page)
 
@@ -794,15 +929,34 @@ def query_expeditors_one(page, tracking_number, save_pdf=True):
             result["error"] = "Expeditors blocked or captcha"
             return result
 
-        if not loaded:
+        graphql_result = graphql_results[-1] if graphql_results else None
+        if graphql_result and graphql_result.get("error"):
+            result["status"] = "Error"
+            result["error"] = graphql_result["error"]
+            return result
+        if graphql_result and graphql_result.get("no_result"):
+            result["status"] = "No result"
+            result["error"] = graphql_result.get("error", "")
+            return result
+
+        if not loaded and not graphql_result:
             result["status"] = "Error"
             result["error"] = "EI详情页在45秒内未显示当前状态"
             return result
 
-        status = extract_status(page_text, extract_labeled_status(page))
+        if graphql_result:
+            # The current EI site returns the S-number search result through
+            # GraphQL, while the page body can remain an empty results shell.
+            # Use only the response tied to the exact reference sent above.
+            status = graphql_result.get("status") or "Unknown"
+        else:
+            status = extract_status(page_text, extract_labeled_status(page))
         result["status"] = status
 
-        arrival_time = get_arrival_time(page_text)
+        arrival_time = (
+            (graphql_result or {}).get("status_date")
+            or get_arrival_time(page_text)
+        )
 
         if is_expeditors_delivered(status, page_text):
             result["is_delivered"] = True

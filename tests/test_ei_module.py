@@ -13,6 +13,64 @@ class ExpeditorsParsingTests(unittest.TestCase):
         page.evaluate.return_value = []
         self.assertTrue(ei.wait_for_detail_page(page, "S123456"))
 
+    def test_detail_wait_accepts_correlated_api_result_without_page_status(self):
+        page = mock.Mock()
+        ready = mock.Mock(return_value=True)
+        self.assertTrue(ei.wait_for_detail_page(page, "S123456", result_ready=ready))
+        ready.assert_called_once_with()
+        page.locator.assert_not_called()
+
+    def test_graphql_result_requires_exact_reference_and_returns_status(self):
+        request = {
+            "operationName": "guestSearchShipmentsByReferenceNumber",
+            "variables": {"referenceNumber": "S915237776"},
+        }
+        response = {
+            "data": {
+                "guestShipmentSearch": {
+                    "status": {
+                        "description": "Services Completed: Notified Customers Broker",
+                        "lastStatusChangeEvent": {
+                            "description": "Shipment Turned Over",
+                            "formattedDate": "12-Oct-2026",
+                        },
+                    }
+                }
+            }
+        }
+
+        result = ei.extract_graphql_tracking_result(request, response, "S915237776")
+
+        self.assertEqual("Services Completed", result["status"])
+        self.assertEqual("Shipment Turned Over", result["last_event"])
+        self.assertEqual("2026/10/12", result["status_date"])
+        self.assertIsNone(
+            ei.extract_graphql_tracking_result(
+                {**request, "variables": {"referenceNumber": "prefix-S915237776-suffix"}},
+                response,
+                "S915237776",
+            )
+        )
+        self.assertIsNone(
+            ei.extract_graphql_tracking_result(
+                {**request, "operationName": "retrieveShipmentByReferenceNumberForGuest"},
+                response,
+                "S915237776",
+            )
+        )
+
+    def test_graphql_null_search_is_reported_as_no_result(self):
+        result = ei.extract_graphql_tracking_result(
+            {
+                "operationName": "guestSearchShipmentsByReferenceNumber",
+                "variables": {"referenceNumber": "S123456"},
+            },
+            {"data": {"guestShipmentSearch": None}},
+            "S123456",
+        )
+        self.assertTrue(result["no_result"])
+        self.assertEqual("No result", result["status"])
+
     def test_s_ocean_query_without_ei_credentials_reports_login_requirement(self):
         page = mock.Mock()
         with mock.patch.object(ei, "EI_LOGIN_ENABLED", False):
@@ -37,6 +95,22 @@ class ExpeditorsParsingTests(unittest.TestCase):
             self.assertTrue(ei.click_track_submit_button(page, input_box))
         button.click.assert_called_once()
         input_box.press.assert_not_called()
+
+    def test_dashboard_submit_clicks_unlabeled_expeditors_arrow(self):
+        input_box = mock.Mock()
+        arrow = mock.Mock()
+        arrow.is_visible.return_value = True
+        page = mock.Mock()
+        page.locator.side_effect = lambda selector: (
+            mock.Mock(count=mock.Mock(return_value=1), nth=mock.Mock(return_value=arrow))
+            if selector == "button[type='submit'].arrow-authenticated:visible"
+            else mock.Mock(count=mock.Mock(return_value=0))
+        )
+        with mock.patch.object(ei.time, "sleep"):
+            self.assertTrue(ei.click_track_submit_button(page, input_box))
+        arrow.click.assert_called_once()
+        input_box.press.assert_not_called()
+
     def test_semantic_status_wins_over_route_and_history(self):
         page = mock.Mock()
         page.evaluate.return_value = [
@@ -111,6 +185,52 @@ class ExpeditorsParsingTests(unittest.TestCase):
 
         self.assertEqual("Error", result["status"])
         self.assertIn("未显示当前状态", result["error"])
+
+    def test_s_query_uses_status_from_matching_graphql_request(self):
+        page = mock.Mock()
+        page.locator.return_value.inner_text.return_value = "Shipment results"
+        request = mock.Mock()
+        request.post_data_json = {
+            "operationName": "guestSearchShipmentsByReferenceNumber",
+            "variables": {"referenceNumber": "S915237776"},
+        }
+        response = mock.Mock()
+        response.url = "https://go2expo.expeditors.com/graphql"
+        response.request = request
+        response.status = 200
+        response.json.return_value = {
+            "data": {
+                "guestShipmentSearch": {
+                    "status": {
+                        "description": "Services Completed: Notified Customers Broker",
+                        "lastStatusChangeEvent": {
+                            "description": "Shipment Turned Over",
+                            "formattedDate": "12-Oct-2026",
+                        },
+                    }
+                }
+            }
+        }
+        callbacks = {}
+
+        def capture_listener(_event, listener):
+            callbacks["listener"] = listener
+
+        def open_page(_page, _tracking_number, result_ready=None):
+            callbacks["listener"](response)
+            self.assertTrue(result_ready())
+            return True
+
+        page.on.side_effect = capture_listener
+        with mock.patch.object(ei, "EI_LOGIN_ENABLED", True), \
+             mock.patch.object(ei, "open_expeditors_detail_page", side_effect=open_page), \
+             mock.patch.object(ei, "close_expo_welcome_popup_once"), \
+             mock.patch.object(ei, "remove_overlays"):
+            result = ei.query_expeditors_one(page, "S915237776", save_pdf=False)
+
+        self.assertEqual("Services Completed", result["status"])
+        self.assertFalse(result["is_delivered"])
+        page.remove_listener.assert_called_once_with("response", callbacks["listener"])
 
 
 if __name__ == "__main__":
